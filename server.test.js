@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert";
-import { validate, safety, quality, fit, maxMinutes, redact, gemma, TIMING, freeOpenRouterModels, freeGoogleModels } from "./server.js";
+import { validate, safety, quality, fit, maxMinutes, redact, gemma, TIMING, freeOpenRouterModels, freeGoogleModels, curated, gentle } from "./server.js";
 
 const c = { state: "surprise", energy: 30, budget: 0, social: "solo", chaos: 3, city: "", excuse: "", minutes: 0 };
 
@@ -298,6 +298,94 @@ test("routing: budget exhaustion throws fast with a traceable reason", async () 
       return true;
     },
   );
+});
+
+// --- circuit persistence: a cooldown must survive into the next request ----
+const goKey = `${routeGo.provider}:${routeGo.host}`;
+const timeoutErr = () => { const e = new Error("The operation was aborted due to timeout"); e.name = "TimeoutError"; return e; };
+
+test("routing: the next request skips a timed-out provider instead of waiting again", async () => {
+  const health = new Map(), calls = [];
+  const opts = {
+    routes: [routeGo],
+    health,
+    call: async () => { calls.push("attempt"); throw timeoutErr(); },
+  };
+  await assert.rejects(gemma(c, [], "", [], opts), /timeout after/);
+  assert.equal(calls.length, 1, "first request pays the attempt");
+  const open = health.get(goKey);
+  assert.ok(open && open.until - Date.now() >= TIMING.cooldown_error_ms, "the cooldown must outlive the attempt that opened it");
+  assert.equal(open.fails, 1);
+
+  const t0 = Date.now();
+  await assert.rejects(gemma(c, [], "", [], opts), (e) => {
+    assert.ok(e.routeTrace.length > 0, "the skip stays visible");
+    assert.ok(e.routeTrace.every((a) => a.stage === "route_skip"), "nothing is attempted while the circuit is open");
+    assert.match(e.routeTrace[0].reason, /circuit open/);
+    assert.ok(e.routeTrace[0].retry_in_ms > 0);
+    return true;
+  });
+  assert.equal(calls.length, 1, "the cooling-down provider is never re-probed");
+  assert.ok(Date.now() - t0 < 1000, "no provider wait on the second request");
+});
+
+test("routing: repeated failures widen the cooldown, a success clears it", async () => {
+  const health = new Map();
+  const opts = { routes: [routeGo], health, call: async () => { throw timeoutErr(); } };
+  await assert.rejects(gemma(c, [], "", [], opts));
+  const first = health.get(goKey).until - Date.now();
+  // The cooldown lapses and the provider fails again: same route, second strike.
+  health.set(goKey, { ...health.get(goKey), until: Date.now() - 1 });
+  await assert.rejects(gemma(c, [], "", [], opts));
+  const second = health.get(goKey);
+  assert.equal(second.fails, 2, "consecutive failures are counted");
+  assert.ok(second.until - Date.now() > first, "the second failure buys a longer cooldown");
+  assert.ok(second.until - Date.now() <= TIMING.cooldown_max_ms, "and never beyond the cap");
+
+  health.set(goKey, { ...second, until: Date.now() - 1 });
+  const ok = await gemma(c, [], "", [], { routes: [routeGo], health, call: async () => okBody });
+  assert.equal(ok.provider, "google-generative-ai");
+  assert.equal(health.has(goKey), false, "a working route never stays in a breaker");
+});
+
+test("routing: every circuit open means skips only, so the caller can label it circuit-open", async () => {
+  const health = new Map([
+    ["openrouter:openrouter.ai", { until: Date.now() + 30000, reason: "http 429 rate limited", fails: 1 }],
+    [goKey, { until: Date.now() + 30000, reason: "timeout after 16000ms", fails: 2 }],
+  ]);
+  const calls = [];
+  await assert.rejects(
+    gemma(c, [], "", [], { routes: [routeOr, routeGo], health, call: async (r) => { calls.push(r.provider); return okBody; } }),
+    (e) => {
+      assert.deepEqual(e.routeTrace.map((t) => t.stage), ["route_skip", "route_skip"]);
+      assert.match(e.routeTrace[0].reason, /circuit open: http 429/);
+      assert.match(e.routeTrace[1].reason, /circuit open: timeout/);
+      return true;
+    },
+  );
+  assert.deepEqual(calls, [], "both providers are inside their cooldown");
+});
+
+// --- curated fallback: the selector honours the player's declared limits ----
+test("curated: a rotting, zero-budget, 15-minute player gets the gentlest outing", () => {
+  const base = { energy: 10, budget: 0, social: "solo", chaos: 2, minutes: 15, city: "", excuse: "" };
+  for (const state of ["rotting", "disappear"]) {
+    const p = { ...base, state };
+    assert.ok(gentle(p), `${state} is a gentle state`);
+    const q = curated(p);
+    assert.ok(q.duration_minutes <= 15, `${q.title} fits 15 minutes`);
+    assert.ok(q.duration_minutes <= 10, `${q.title} should be the low-effort end of the pool`);
+    assert.equal(q.budget, 0, "zero budget means zero cost");
+    assert.equal(q.difficulty, "easy");
+    assert.ok(q.min <= p.energy, "never above the player's energy floor");
+  }
+  assert.equal(curated({ ...base, state: "rotting" }).title, "QUIET PATCH");
+});
+
+test("curated: a player who is not gentle keeps the original first-fit pick", () => {
+  const q = curated({ energy: 50, budget: 0, social: "solo", chaos: 3, minutes: 0, state: "side-quest", city: "", excuse: "" });
+  assert.equal(q.title, "THE 400-METER EXPEDITION");
+  assert.equal(gentle({ energy: 50, budget: 0, social: "solo", chaos: 3, minutes: 0, state: "side-quest" }), false);
 });
 
 // --- quality: real adventure, not AI poetry ---------------------------------

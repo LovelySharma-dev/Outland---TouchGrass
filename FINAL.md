@@ -36,8 +36,15 @@ Budget enforced by the server (`TIMING`):
 | minimum attempt | 4s |
 | minimum regenerate | 9s |
 | 429 cooldown | 60s |
-| error cooldown | 8s |
+| error cooldown | 30s |
+| cooldown escalation | ×2 per consecutive failure, cap 120s |
 | output cap | 700 tokens |
+
+A cooldown always outlives the attempt that opened it (30s > the 16s attempt
+cap) and is held in process memory, so a request that lands while both
+providers are cooling down emits `route_skip` → `circuit open` →
+`curated_fallback` in single-digit milliseconds instead of waiting out a
+provider timeout. Only a successful attempt closes the circuit.
 
 Worst case ≈ discovery (up to 6s) + generation budget (up to 25s) ≈ **~31s**,
 then an honest curated fallback is returned. There is no unbounded wait and no

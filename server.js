@@ -63,13 +63,23 @@ export const TIMING = {
   min_attempt_ms: 4000,
   min_regenerate_ms: 9000,
   cooldown_429_ms: 60000,
-  cooldown_error_ms: 8000,
+  // A cooldown must outlive the attempt that produced it, otherwise the next
+  // request re-probes a provider that is still broken and pays the full
+  // 16s timeout again. 30s > the 16s attempt cap, and consecutive failures
+  // double it (see openCircuit) up to cooldown_max_ms.
+  cooldown_error_ms: 30000,
+  cooldown_max_ms: 120000,
   max_output_tokens: 700,
 };
 
-// Circuit breaker per route. A route that rate-limits us is skipped for a
-// while instead of being re-probed on every request, so a 429 costs ~1s on
-// the first request and ~0ms on the next ones.
+// Circuit breaker per route, held for the life of the process so it survives
+// across requests. A route that fails is skipped for its whole cooldown
+// instead of being re-probed: a 429 costs ~1s on the first request and ~0ms
+// on every request during the next 60s, a timeout costs 16s once and then
+// nothing until the cooldown expires. Consecutive failures escalate the
+// cooldown (base, 2x, 4x ... capped at cooldown_max_ms) and only a successful
+// attempt clears it, so a provider that keeps hanging is skipped for longer
+// and longer instead of being retried every few seconds.
 const routeHealth = new Map();
 const routeKey = (r) => `${r.provider}:${r.host}`;
 export function resetRouteHealth() { routeHealth.clear(); }
@@ -648,6 +658,17 @@ export async function gemma(c, places, feedback, history, opts = {}) {
     const h = health.get(routeKey(route));
     return h && h.until > Date.now() ? h : null;
   };
+  // Record a failure and open (or extend) the circuit. The failure count
+  // survives an expired cooldown and is only cleared by a success, so two
+  // timeouts in a row mean the second one is skipped for twice as long.
+  const openCircuit = (route, base, reason) => {
+    const key = routeKey(route);
+    const prev = health.get(key);
+    const fails = ((prev && prev.fails) || 0) + 1;
+    const cooldown = Math.min(base * 2 ** (fails - 1), T.cooldown_max_ms || 120000);
+    health.set(key, { until: Date.now() + cooldown, reason, fails });
+    return cooldown;
+  };
 
   for (const route of routes) {
     for (const model of route.models) {
@@ -675,10 +696,11 @@ export async function gemma(c, places, feedback, history, opts = {}) {
         const reason = timeout ? `timeout after ${capMs}ms` : redact(e);
         errors.push(`${route.provider}/${model}: ${reason}`);
         routeTrace.push({ stage: "route_attempt", provider: route.provider, endpoint: route.host, model, ok: false, reason, attempt_ms: Date.now() - t1 });
-        // No blind retry for a provider that just told us it cannot serve us.
-        if (timeout) health.set(routeKey(route), { until: Date.now() + T.cooldown_error_ms, reason: `timeout after ${capMs}ms` });
-        else if (status === 429) health.set(routeKey(route), { until: Date.now() + T.cooldown_429_ms, reason: "http 429 rate limited" });
-        else if (status >= 500) health.set(routeKey(route), { until: Date.now() + T.cooldown_error_ms, reason: `http ${status}` });
+        // No blind retry for a provider that just told us it cannot serve us,
+        // and each consecutive failure extends the time it stays skipped.
+        if (timeout) openCircuit(route, T.cooldown_error_ms, `timeout after ${capMs}ms`);
+        else if (status === 429) openCircuit(route, T.cooldown_429_ms, "http 429 rate limited");
+        else if (status >= 500) openCircuit(route, T.cooldown_error_ms, `http ${status}`);
         continue; // next model
       }
       // Test fakes return a bare string; the real callRoute returns metadata.
@@ -757,8 +779,24 @@ const OUTING = [
     steps: ["Go to viewpoint >=15min away.","Find a viewpoint.","Memorize one detail.","Head back within budget.","Return under own steam."],
     bonus_objective: "Spot red on every block.", secret_objective: "Find a view worth remembering.", done_when: "Reached new viewpoint and returned." },
 ];;
-const curated = (c) => {
-  const q = OUTING.find((o) => c.energy >= o.min) || OUTING[0];
+// Low-effort states: the player can barely move (energy <= 30) or the mood
+// itself says "do not send me far" (rotting in bed, needs to disappear).
+const GENTLE_STATES = new Set(["rotting", "disappear"]);
+export const gentle = (c) => c.energy <= 30 || GENTLE_STATES.has(c.state);
+
+// Outings the player can actually finish: inside their energy floor and their
+// budget. Time is applied by clamping, never by silently promising more than
+// they said they had.
+const eligible = (c) => OUTING.filter((o) => c.energy >= o.min && o.budget <= c.budget);
+
+// First pick of the curated pool. A gentle state gets the shortest outing that
+// clears its energy floor, not simply the first entry that does.
+export const curated = (c) => {
+  const pool = eligible(c);
+  const list = pool.length ? pool : OUTING;
+  const q = gentle(c)
+    ? list.reduce((best, o) => (o.duration_minutes < best.duration_minutes || (o.duration_minutes === best.duration_minutes && o.min < best.min) ? o : best), list[0])
+    : list[0];
   return { ...q, duration_minutes: Math.min(q.duration_minutes, maxMinutes(c)) };
 };
 
@@ -813,17 +851,14 @@ app.post("/api/quest", async (req, res) => {
     trace.push({ stage: "discovery", provider: "serpapi", ok: false, skipped: process.env.SERPAPI_KEY ? "no city provided" : "SERPAPI_KEY missing", note: "fallback: location-independent quest" });
   }
 
-    // Fast path: if all configured routes are already unhealthy, skip waiting for
-  // their timeouts and go straight to curated fallback.
+  // Fast path: if every configured route is already inside its cooldown, say so
+  // up front. gemma() then only emits route_skip entries, so the request costs
+  // a few milliseconds instead of a provider timeout.
   const routesCfg = ROUTES || [];
   const anyHealthy = routesCfg.some((r) => !routeState(r));
   if (!anyHealthy && routesCfg.length) {
     failReason = "circuit-open";
     trace.push({ stage: "circuit_check", ok: false, reason: "all routes unhealthy", note: "fast fallback to avoid waiting for provider timeouts" });
-  }
-  if (!anyHealthy && routesCfg.length) {
-    failReason = failReason || "circuit-open";
-    quest = null;
   }
   // One deadline governs every generation attempt, including regenerations.
   const deadline = Date.now() + TIMING.gen_budget_ms;
@@ -839,9 +874,17 @@ app.post("/api/quest", async (req, res) => {
     try {
       out = await gemma(c, places, feedback, recent, { deadline });
     } catch (e) {
-      if (e.routeTrace) for (const a of e.routeTrace) trace.push(a);
-      failReason = /budget|timeout/i.test(String(e.message || "")) ? "generation-timeout" : "no-free-gemma-route";
-      trace.push({ stage, attempt, ok: false, error: redact(e), elapsed_ms: Date.now() - t0 });
+      const rt = e.routeTrace || [];
+      for (const a of rt) trace.push(a);
+      // Nothing was attempted: every route was skipped by an open circuit, so
+      // the skips are the whole story. A generation-failure stage here would
+      // bury the real reason and label an immediate fallback as a timeout.
+      if (rt.length && rt.every((a) => a.stage === "route_skip")) {
+        failReason = "circuit-open";
+      } else {
+        failReason = /budget|timeout/i.test(String(e.message || "")) ? "generation-timeout" : "no-free-gemma-route";
+        trace.push({ stage, attempt, ok: false, error: redact(e), elapsed_ms: Date.now() - t0 });
+      }
       break;
     }
     for (const a of out.routeTrace) trace.push(a);
@@ -885,13 +928,25 @@ app.post("/api/quest", async (req, res) => {
     // A curated quest that clears safety but not the taste gate is still
     // served - it is hand-written - and the miss is reported in the trace.
     const clamp = (o) => ({ ...o, duration_minutes: Math.min(o.duration_minutes, maxMinutes(c)) });
-    const cands = [curated(c), ...OUTING.map(clamp)];
-    let picked = null, curatedQuality = false;
+    const seenTitles = new Map();
+    for (const o of [curated(c), ...eligible(c).map(clamp)]) if (!seenTitles.has(o.title)) seenTitles.set(o.title, o);
+    const cands = [...seenTitles.values()];
+    // Gentle states read the pool lightest-first, so the outing that survives
+    // the gates is the cheapest one the player can actually finish.
+    if (gentle(c)) cands.sort((a, b) => a.duration_minutes - b.duration_minutes || a.min - b.min);
+    let picked = null, curatedQuality = false, curatedWhy = "";
     for (const cand of cands) {
       const sc = safety(cand, c);
       if (!sc.ok) continue;
       picked = picked || sc.quest;
-      if (!quality(sc.quest, c, recent, places)) { picked = sc.quest; curatedQuality = true; break; }
+      const taste = quality(sc.quest, c, recent, places);
+      curatedWhy = taste || "";
+      // A gentle state stops at the gentlest outing that clears safety. The
+      // taste gate grades model output (hook markers, discovery verbs) and
+      // must not be allowed to promote a longer expedition over a player who
+      // is rotting in bed - the miss is still reported in the trace below.
+      if (gentle(c)) { curatedQuality = !taste; break; }
+      if (!taste) { picked = sc.quest; curatedQuality = true; break; }
     }
     // The pool is tiny, so when every candidate reads as a repeat of the
     // recent history, rotate the category instead of serving the same
@@ -912,7 +967,7 @@ app.post("/api/quest", async (req, res) => {
     source = "curated-fallback";
     failReason = failReason || "gates-rejected";
     trace.push({ stage: "safety", ok: true, source: "curated" });
-    trace.push({ stage: "quality", ok: curatedQuality, source: "curated", ...(curatedQuality ? {} : { note: "curated content is hand-written; the AI taste gate does not apply to it" }) });
+    trace.push({ stage: "quality", ok: curatedQuality, source: "curated", ...(curatedQuality ? {} : { reason: curatedWhy || "curated pool", note: "curated content is hand-written; the AI taste gate does not apply to it" }) });
     trace.push({ stage: "curated_fallback", ok: true, reason: failReason, note: "gemma did not deliver a quest that passed every gate inside the budget" });
     if (SENTRY_ON) Sentry.captureMessage(`quest fallback: ${JSON.stringify(trace)}`, "warning");
   }
