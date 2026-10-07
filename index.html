@@ -1,0 +1,48 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="description" content="OUTLAND — your neighborhood has side quests."><title>OUTLAND · your neighborhood has side quests.</title>
+<style>
+:root{--bg:#0e0e10;--fg:#f4f1ea;--ac:#c6ff3d;--mu:#8a8a90}
+@media(prefers-color-scheme:light){:root{--bg:#f4f1ea;--fg:#111;--ac:#2b6b00;--mu:#666}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:16px system-ui,sans-serif;min-height:100vh;padding:max(20px,env(safe-area-inset-top)) 20px 40px}
+main{max-width:520px;margin:0 auto}h1{font-size:clamp(34px,9vw,56px);line-height:1;margin:28px 0 20px;letter-spacing:-.03em}
+.brand{font-weight:800;letter-spacing:.35em;color:var(--ac);font-size:13px;margin-bottom:6px}.tag{letter-spacing:.18em;font-size:13px;color:var(--mu);text-transform:uppercase}
+.g{display:grid;gap:10px}button{font:inherit;color:inherit;background:transparent;border:2px solid var(--mu);border-radius:16px;padding:14px 16px;text-align:left;cursor:pointer;transition:transform .12s,border-color .12s}
+button:hover,button:focus-visible{border-color:var(--ac);outline:none}button:active{transform:scale(.97)}button[aria-pressed=true]{background:var(--ac);color:#111;border-color:var(--ac)}
+.go{background:var(--ac);color:#111;border-color:var(--ac);font-weight:800;text-align:center;margin-top:18px}small{color:var(--mu)}
+.row{display:flex;flex-wrap:wrap;gap:8px}.row button{padding:10px 14px}.q{animation:r .6s cubic-bezier(.2,1.4,.4,1)}@keyframes r{from{opacity:0;transform:translateY(30px) scale(.95)}}
+.bar{height:4px;background:var(--mu);border-radius:4px;margin-bottom:24px}.bar i{display:block;height:100%;background:var(--ac);transition:width .3s}
+pre{white-space:pre-wrap;font-size:12px;color:var(--mu)}@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style></head><body><main><div class="brand">OUTLAND</div><div class="bar"><i id="p"></i></div><div id="v" aria-live="polite"></div></main>
+<script>
+const S={state:null,energy:null,budget:null,social:null,chaos:null,city:""};
+const mood=[["rotting","🫠 I've been rotting in bed"],["scrolling","📱 I've been scrolling for 3 hours"],["leave-room","🧍 I need to leave my room"],["tabs","😵‍💫 my brain has 47 tabs open"],["low-battery","🥱 low battery human"],["side-quest","🔥 I need a side quest"],["new-sight","👀 I want to see something I've never seen"],["disappear","🌚 I need to disappear for a bit"],["dunno","💀 I don't know, just get me out"],["main-character","✨ main character moment"],["surprise","🎲 SURPRISE ME"]];
+const en=[[10,"10% — I can barely leave my building."],[30,"30% — Give me a reason to walk."],[50,"50% — I'm willing to explore."],[80,"80% — Take me somewhere."],[100,"100% — Give me a quest."]];
+const bu=[[0,"🪦 Financially deceased"],[50,"🪙 Found ₹37 in my pocket"],[200,"💳 I can spend a little"],[500,"🤑 Today's not about money"]];
+const so=[["solo","🧍 Just me"],["yapper","👯 Me + my yapper"],["group","🫂 The group chat actually showed up"],["dog","🐕 Me + my dog"],["meet-humans","🕵️ I want to meet humans"],["secret","🥷 Nobody needs to know where I went"]];
+const ch=[[1,"1 — NORMAL"],[2,"2 — SLIGHTLY UNHINGED"],[3,"3 — SIDE QUEST"],[4,"4 — MAIN CHARACTER"],[5,"5 — TOUCH GRASS FINAL BOSS"]];
+const v=document.getElementById("v"),p=document.getElementById("p");
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const opts=(list,key,onpick)=>list.map(([val,l])=>`<button data-k="${key}" data-v="${val}" aria-pressed="${S[key]==val}">${esc(l)}</button>`).join("");
+function s1(){p.style.width="15%";v.innerHTML=`<div class="tag">your neighborhood has side quests.</div><h1>what's your excuse today?</h1><div class="g">${opts(mood,"state")}</div>`}
+function s2(){p.style.width="50%";v.innerHTML=`<h1>how much IRL DLC do you have?</h1><div class="g">${opts(en,"energy")}</div><p><small>budget</small></p><div class="row">${opts(bu,"budget")}</div><p><small>who's coming</small></p><div class="row">${opts(so,"social")}</div><p><small>city (optional, for real places)</small><br><input id="city" placeholder="e.g. Ghaziabad" style="width:100%;padding:12px;border-radius:12px;border:2px solid var(--mu);background:transparent;color:inherit;font:inherit"></p><button class="go" id="n2" disabled>NEXT →</button>`;
+ const chk=()=>document.getElementById("n2").disabled=!(S.energy!=null&&S.budget!=null&&S.social)}
+function s3(){p.style.width="80%";v.innerHTML=`<h1>how unhinged are we allowed to get?</h1><div class="g">${opts(ch,"chaos")}</div><button class="go" id="gen" disabled>GENERATE MY QUEST →</button>`}
+v.addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;
+ if(b.dataset.k){const k=b.dataset.k;S[k]=isNaN(b.dataset.v)?b.dataset.v:+b.dataset.v;
+  b.parentElement.querySelectorAll(`[data-k=${k}]`).forEach(x=>x.setAttribute("aria-pressed",x===b));
+  if(k==="state")return setTimeout(s2,180);
+  if(k==="chaos")document.getElementById("gen").disabled=false;
+  const n=document.getElementById("n2");if(n)n.disabled=!(S.energy!=null&&S.budget!=null&&S.social)}
+ else if(b.id==="n2"){S.city=document.getElementById("city").value;s3()}
+ else if(b.id==="gen")gen();else if(b.id==="again")s1()});
+async function gen(){p.style.width="95%";v.innerHTML=`<div class="tag">OUTLAND</div><h1>reading your neighborhood's lore…</h1>`;
+ try{const r=await fetch("/api/quest",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(S)});
+  if(!r.ok)throw new Error("server said "+r.status);show(await r.json())}
+ catch(e){v.innerHTML=`<h1>quest failed to spawn</h1><p>${esc(e.message)}</p><button class="go" id="gen">TRY AGAIN</button>`}}
+function show({quest:q,source,trace,latency_ms}){p.style.width="100%";
+ v.innerHTML=`<div class="q"><small>${"🔥".repeat(q.difficulty)} · ${Math.round(q.duration_minutes)} min · ₹${q.budget} · ${q.xp} XP</small><h1>${esc(q.title)}</h1><p>You have ${Math.round(q.duration_minutes)} minutes.</p><ol>${q.steps.map(s=>`<li>${esc(s)}</li>`).join("")}</ol>
+ ${q.location_candidates?.length?`<p><small>Verified spots: ${q.location_candidates.map(l=>esc(l.name||l)).join(", ")}</small></p>`:""}
+ <p><b>Done when:</b> ${esc(q.completion_condition)}</p><p><small>⚠ ${q.safety_notes.map(esc).join(" ")}</small></p>
+ <button class="go" id="again">NEW QUEST</button>
+ <details><summary><small>pipeline trace · ${esc(source)} · ${latency_ms}ms</small></summary><pre>${esc(JSON.stringify(trace,null,1))}</pre></details></div>`}
+s1();
+</script></body></html>
