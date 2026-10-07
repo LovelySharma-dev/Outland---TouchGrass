@@ -707,46 +707,56 @@ const OUTING = [
   { min: 0, title: "THE 400-METER EXPEDITION", rarity: "COMMON", category: "EXPLORER", difficulty: "easy", duration_minutes: 12, budget: 0, xp: 35,
     hook: "Everything interesting is within 400 metres of your door. Prove it.",
     objective: "Leave the building and return with one thing you had never actually noticed.",
-    steps: ["Step outside and stand still for 30 seconds with your phone in your pocket.",
-      "Find the most worn-looking leaf on the ground beneath the nearest tree and photograph it.",
-      "Look at one doorway or shop window on your street you have never really looked at.",
-      "Take the long way home, even if it only adds one minute."],
+    steps: ["Step outside and stand still for 30 seconds with your phone in your pocket.","Find the most worn-looking leaf on the ground beneath the nearest tree and photograph it.","Look at one doorway or shop window on your street you have never really looked at.","Take the long way home, even if it only adds one minute."],
     bonus_objective: "Find something shaped like a letter of the alphabet.",
     secret_objective: "",
     done_when: "You left the building, documented a leaf, and came back with one thing you had never noticed." },
-  { min: 31, title: "THE LOOP OF UNPROVOKED FRESH AIR", rarity: "UNCOMMON", category: "MEMORY QUEST", difficulty: "medium", duration_minutes: 25, budget: 0, xp: 55,
+  { min: 0, title: "QUIET PATCH", rarity: "COMMON", category: "NATURE", difficulty: "easy", duration_minutes: 8, budget: 0, xp: 30,
+    hook: "Find one quiet spot and notice three small things.",
+    objective: "Sit quietly near your door and observe.",
+    steps: ["Step outside and find the quietest spot nearby.","Sit for two minutes with no phone scrolling.","Notice three quiet sounds.","Find one tiny detail you'd normally miss."],
+    bonus_objective: "Spot an unusual shadow.", secret_objective: "", done_when: "You sat quietly, identified three sounds, and found one small detail." },
+  { min: 0, title: "ONE LEAF QUEST", rarity: "COMMON", category: "PHOTO HUNT", difficulty: "easy", duration_minutes: 8, budget: 0, xp: 28,
+    hook: "Just find the weirdest leaf on your street.",
+    objective: "Photograph the weirdest leaf you can find nearby.",
+    steps: ["Scan the ground near your building.","Compare at least three leaves.","Photograph your chosen leaf.","Head back."],
+    bonus_objective: "Find a leaf with an unexpected shape.", secret_objective: "", done_when: "You photographed a weird leaf." },
+  { min: 5, title: "THREE SOUNDS", rarity: "UNCOMMON", category: "SOUND HUNT", difficulty: "easy", duration_minutes: 10, budget: 0, xp: 35,
+    hook: "Close your eyes. What are you missing?",
+    objective: "Identify three distinct sounds nearby.",
+    steps: ["Sit or stand comfortably.","Close eyes for one minute and listen.","Name three sounds.","Locate each source."],
+    bonus_objective: "Find a sound you've never noticed.", secret_objective: "", done_when: "You identified and located three sounds." },
+  { min: 10, title: "STREET LETTERS", rarity: "COMMON", category: "PHOTO HUNT", difficulty: "easy", duration_minutes: 12, budget: 0, xp: 35,
+    hook: "The alphabet is hiding on your block.",
+    objective: "Find letter shapes in your environment.",
+    steps: ["Walk slowly around your block.","Find at least three letter shapes.","Photograph them.","Try to spell a short word."],
+    bonus_objective: "Find a letter made by shadow.", secret_objective: "", done_when: "You found at least three letter shapes." },
+  { min: 15, title: "THE LOOP OF UNPROVOKED FRESH AIR", rarity: "UNCOMMON", category: "MEMORY QUEST", difficulty: "medium", duration_minutes: 25, budget: 0, xp: 55,
     hook: "There is a bench you have never sat on. It is probably offended.",
-    objective: "Sit somewhere you have never sat and see three things your window cannot show you.",
-    steps: ["Leave your street and walk until you can see something taller than your building.",
-      "Find a bench, a low wall or a step and sit there for two full minutes without opening an app.",
-      "Spot three things on that block you could not have seen from your window.",
-      "Walk home by a different road than the one you came by."],
-    bonus_objective: "Photograph the strangest shadow you pass.",
-    secret_objective: "Find something that makes you stop and think: why is that here?",
-    done_when: "You sat somewhere new, saw three unseen things, and looped home on a new road." },
-  { min: 51, title: "THE NEIGHBOURHOOD LORE RUN", rarity: "RARE", category: "OBSERVER", difficulty: "medium", duration_minutes: 45, budget: 0, xp: 85,
+    objective: "Sit somewhere new and see three things your window can't show you.",
+    steps: ["Walk until you see something taller than your building.","Find a bench or step and sit 2 minutes without apps.","Spot three things you couldn't see from window.","Return by different road."],
+    bonus_objective: "Photograph the strangest shadow.", secret_objective: "Find something that makes you wonder.", done_when: "Sat somewhere new, saw three things, looped home." },
+  { min: 20, title: "COLOR HUNT", rarity: "UNCOMMON", category: "COLOR QUEST", difficulty: "medium", duration_minutes: 20, budget: 0, xp: 45,
+    hook: "Hunt for five colors you rarely notice.",
+    objective: "Find and photograph five different colors.",
+    steps: ["Pick five colors.","Find each as a detail.","Photograph all five.","Compare hardest to find."],
+    bonus_objective: "Find an unusual shade.", secret_objective: "", done_when: "You photographed five distinct colors." },
+  { min: 30, title: "THE NEIGHBOURHOOD LORE RUN", rarity: "RARE", category: "OBSERVER", difficulty: "medium", duration_minutes: 45, budget: 0, xp: 85,
     hook: "The oldest thing on the block is usually the ugliest. Go find it.",
     objective: "Walk an unfamiliar street end to end and return with one old thing and one made thing.",
-    steps: ["Pick the least familiar street within ten minutes of you and walk its full length.",
-      "Find the oldest thing you can see out there: a tree, a wall, a shutter, a sign.",
-      "Find something painted, tiled or tagged that someone made on purpose.",
-      "Stand near running water, trees or an open square for one full minute.",
-      "Name the street you would never have entered if you had stayed in."],
-    bonus_objective: "Find a house number painted in a style from another decade.",
-    secret_objective: "",
-    done_when: "You walked an unfamiliar street end to end and logged one old thing and one made thing." },
+    steps: ["Walk an unfamiliar street end to end.","Find the oldest thing you can see.","Find something painted/made on purpose.","Stand in a quiet spot 1 minute.","Note the street you wouldn't have entered."],
+    bonus_objective: "Find an old house number.", secret_objective: "", done_when: "Walked unfamiliar street end to end; logged old and made thing." },
+  { min: 40, title: "MICRO EXPEDITION", rarity: "UNCOMMON", category: "EXPLORER", difficulty: "medium", duration_minutes: 30, budget: 0, xp: 60,
+    hook: "Explore one unfamiliar street you keep passing.",
+    objective: "Walk an unfamiliar street end to end and find three details.",
+    steps: ["Find unfamiliar street.","Walk end to end.","Find three details.","Return different way."],
+    bonus_objective: "Find something funny.", secret_objective: "", done_when: "Walked street end to end, found three details." },
   { min: 81, title: "FARTHER THAN USUAL", rarity: "EPIC", category: "BOSS QUEST", difficulty: "hard", duration_minutes: 75, budget: 0, xp: 130,
     hook: "Stand somewhere you have never stood and look back at your own street.",
-    objective: "Reach a viewpoint you had never visited and come home under your own steam.",
-    steps: ["Leave with a destination at least fifteen minutes away on foot and commit to it.",
-      "Find a viewpoint: a rise, a bridge, an elevated plaza, or the far end of a park.",
-      "Photograph, sketch or memorise one detail you would describe to nobody.",
-      "Head back without spending more than your budget allows.",
-      "Return and log the distance you covered without opening a map app."],
-    bonus_objective: "Spot something red within every block you walk.",
-    secret_objective: "Find a view that would make a great album cover.",
-    done_when: "You reached a viewpoint you had never stood at before and came home under your own steam." },
-];
+    objective: "Reach a viewpoint you never visited and come home on foot.",
+    steps: ["Go to viewpoint >=15min away.","Find a viewpoint.","Memorize one detail.","Head back within budget.","Return under own steam."],
+    bonus_objective: "Spot red on every block.", secret_objective: "Find a view worth remembering.", done_when: "Reached new viewpoint and returned." },
+];;
 const curated = (c) => {
   const q = OUTING.find((o) => c.energy >= o.min) || OUTING[0];
   return { ...q, duration_minutes: Math.min(q.duration_minutes, maxMinutes(c)) };
@@ -788,6 +798,7 @@ app.post("/api/quest", async (req, res) => {
   const c = validate(req.body);
   if (!c) return res.status(400).json({ error: "invalid input" });
   const t0 = Date.now();
+  let quest = null, source = "curated-fallback", feedback = "", served = null, failReason = "";
   const trace = [{ stage: "state_extraction", ok: true, mood: c.state, energy: c.energy, minutes: maxMinutes(c), budget: c.budget, social: c.social, chaos: c.chaos, city: c.city || null }];
 
   let places = [];
@@ -802,9 +813,20 @@ app.post("/api/quest", async (req, res) => {
     trace.push({ stage: "discovery", provider: "serpapi", ok: false, skipped: process.env.SERPAPI_KEY ? "no city provided" : "SERPAPI_KEY missing", note: "fallback: location-independent quest" });
   }
 
+    // Fast path: if all configured routes are already unhealthy, skip waiting for
+  // their timeouts and go straight to curated fallback.
+  const routesCfg = ROUTES || [];
+  const anyHealthy = routesCfg.some((r) => !routeState(r));
+  if (!anyHealthy && routesCfg.length) {
+    failReason = "circuit-open";
+    trace.push({ stage: "circuit_check", ok: false, reason: "all routes unhealthy", note: "fast fallback to avoid waiting for provider timeouts" });
+  }
+  if (!anyHealthy && routesCfg.length) {
+    failReason = failReason || "circuit-open";
+    quest = null;
+  }
   // One deadline governs every generation attempt, including regenerations.
   const deadline = Date.now() + TIMING.gen_budget_ms;
-  let quest = null, source = "curated-fallback", feedback = "", served = null, failReason = "";
   for (let attempt = 1; attempt <= 3 && !quest; attempt++) {
     const stage = attempt === 1 ? "gemma_generate" : "gemma_regenerate";
     const left = deadline - Date.now();
