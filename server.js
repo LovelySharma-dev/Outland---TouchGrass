@@ -5,7 +5,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { MongoClient } from "mongodb";
 
-const SENTRY_ON = !!process.env.SENTRY_DSN;
+// A real Sentry DSN is a URL; placeholder values in .env are ignored.
+const SENTRY_ON = /^https?:\/\//.test(process.env.SENTRY_DSN || "");
 if (SENTRY_ON) Sentry.init({ dsn: process.env.SENTRY_DSN, environment: process.env.NODE_ENV || "development", tracesSampleRate: 0.2, release: "outland@0.1.0" });
 
 const app = express();
@@ -13,7 +14,6 @@ const DIR = path.dirname(fileURLToPath(import.meta.url));
 app.use(express.json({ limit: "10kb" }));
 app.use(express.static(path.join(DIR, "public")));
 app.get("/", (_q, s) => s.sendFile(path.join(DIR, "index.html")));
-if (SENTRY_ON) app.use(Sentry.expressRequestHandler());
 
 // Fallback chain, comma-separated, first model that returns passable JSON wins.
 // gemma-4-26b-a4b-it works on this key but takes ~55s/call, so Gemini is default.
