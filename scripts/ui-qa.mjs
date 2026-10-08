@@ -101,7 +101,8 @@ const AUDIT = () => {
   const ratio = (a, b) => { const l1 = lum(a), l2 = lum(b); return Math.round(((Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05)) * 100) / 100; };
   const sels = [".go", ".ghost", 'button[aria-pressed="true"]', "button", "small", ".tag", ".meta span", ".rarity", ".cat",
     ".stats b", ".stats span", ".hook", ".accepted", ".bonus b", ".done", ".safe", "summary", "footer", "h1",
-    ".qtitle", ".obj", ".load .secs", ".stage", "input", ".secret", ".done small", ".welcome"];
+    ".qtitle", ".obj", ".load .secs", ".stage", "input", ".secret", ".done small", ".welcome",
+    ".place b", ".place small", ".place a"];
   const out = [];
   for (const sel of sels) {
     const el = document.querySelector(sel);
@@ -251,6 +252,35 @@ try {
   await evalJs(`show(${JSON.stringify(questPayload)})`);
   files.push(await capture("15-quest", { scheme: "light", viewport: MOBILE }));
   await audit("quest-mobile", "light", MOBILE);
+
+  // Location grounding: if the live pipeline selected a real place, the card
+  // must actually show it. If it did not, a verified discovery is injected so
+  // the banner and the map link still get screenshotted and contrast-audited.
+  if (questPayload.quest.location) {
+    await evalJs(`show(${JSON.stringify(questPayload)})`);
+    const shown = await evalJs(`((document.querySelector(".place b")||{}).textContent||"")`);
+    if (!shown || !shown.toLowerCase().includes(String(questPayload.quest.location.name).toLowerCase())) {
+      failures.push(`quest card does not show the selected location "${questPayload.quest.location.name}" (rendered: "${shown}")`);
+    } else log("selected location rendered on the live quest card:", shown);
+  } else {
+    log("live payload carried no location; injecting a verified discovery for the location screenshots");
+  }
+  const placePayload = questPayload.quest.location ? questPayload : {
+    ...questPayload,
+    quest: { ...questPayload.quest, location: {
+      name: "Meghdootam Park", source: "serpapi",
+      reason: "quiet public green space suitable for a low-energy observation quest",
+      map_url: "https://www.google.com/maps/search/?api=1&query=Meghdootam%20Park%2C%20Ghaziabad",
+    } },
+  };
+  await evalJs(`show(${JSON.stringify(placePayload)})`);
+  files.push(await capture("16-place-quest", { scheme: "dark" }));
+  await evalJs(`show(${JSON.stringify(placePayload)})`);
+  files.push(await capture("17-place-quest", { scheme: "light" }));
+  await audit("place-quest", "dark", DESKTOP);
+  await audit("place-quest", "light", DESKTOP);
+  await evalJs(`show(${JSON.stringify(placePayload)})`);
+  files.push(await capture("18-place-quest", { scheme: "dark", viewport: MOBILE }));
 
   const report = [
     `screenshots: ${files.length}`,

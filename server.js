@@ -219,6 +219,17 @@ const normRarity = (r, c) => {
   return "COMMON";
 };
 
+// The optional `location` object is shape-checked here and fully vetted by
+// the location gate (STAGE 4b): grounding, safety and player-fit are decided
+// against the real SerpApi discovery list, never against the model's word.
+const normLocation = (l) => {
+  if (typeof l === "string") l = { name: l };
+  if (!l || typeof l !== "object" || Array.isArray(l)) return null;
+  const name = typeof l.name === "string" ? l.name.trim().slice(0, 80) : "";
+  if (!name) return null;
+  return { name, reason: typeof l.reason === "string" ? l.reason.trim().slice(0, 180) : "", source: "serpapi" };
+};
+
 // Stage 4: structural schema + content safety + normalisation.
 export function safety(q, c) {
   if (!q || typeof q.title !== "string" || q.title.trim().length < 2) return { ok: false, reason: "schema:title" };
@@ -261,6 +272,7 @@ export function safety(q, c) {
       secret_objective: String(q.secret_objective || "").trim().slice(0, 200),
       safety: [...(Array.isArray(q.safety) ? q.safety.map((s) => String(s).trim()).filter(Boolean) : []),
         "Stay in public, well-lit places. Skip any step that feels unsafe."],
+      location: normLocation(q.location),
     },
   };
 }
@@ -436,6 +448,142 @@ export function fit(q, c) {
 }
 
 // ---------------------------------------------------------------------------
+// STAGE 5c: location gate. SerpApi discovers places; Gemma may select AT MOST
+// ONE of them to host the quest. The selection is only kept when it is
+// verifiably one of the discovered places, safe, public, affordable, reachable
+// inside the player's time/energy budget and appropriate for their social
+// mode. Anything else is rejected with feedback so the next attempt fixes it -
+// the served quest always carries a verified place or no location at all.
+// ---------------------------------------------------------------------------
+
+// Case/punctuation-insensitive match of the model's chosen name against the
+// discovery list. A copied name (or one with the city appended) matches;
+// anything SerpApi never returned does not, so it can never reach the UI.
+const normName = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+function matchPlace(name, places) {
+  const n = normName(name);
+  if (n.length < 4) return null;
+  for (const p of places) {
+    const pn = normName(p && p.name);
+    if (!pn) continue;
+    if (pn === n) return p;
+    if ((n.length >= 6 || pn.length >= 6) && (pn.includes(n) || n.includes(pn))) return p;
+  }
+  return null;
+}
+
+// Places whose whole point is spending money. On a ₹0 budget these are never
+// recommended, no matter how nice the quest around them sounds.
+const PAID_PLACE = /\b(?:entry fee|admission|ticket(?:s|ed)?|paid|price|pricing|booking|reservation|restaurant|cafe|café|coffee shop|food court|mall|cinema|movie|theat(?:re|er)|nightclub|night club|bar|pub|lounge|hotel|resort|zoo|aquarium|spa|salon|bowling|escape room|amusement park|water park)\b/i;
+// Places that read as an expedition. Only applied to a gentle player
+// (energy <= 30 or a "barely moving" mood) - see gentle().
+const EFFORT_PLACE = /\b(?:trek(?:king)?|hike|hiking|mountain|fort|waterfall|summit|uphill|cliff|ravine|jungle|stair(?:case|s)|rock climb)\b/i;
+// Places built around a crowd. Never handed to a player who is alone.
+const SOCIAL_PLACE = /\b(?:nightclub|night club|bar|pub|lounge|party|nightlife|dating|networking|group tour|guided tour|tour group|crowd(?:ed)?|festival|concert|meetup|karaoke)\b/i;
+
+// Reachability, but only from numbers the model actually wrote about the
+// place. Nothing is estimated from data we do not have.
+function travelIssue(text, c) {
+  const max = maxMinutes(c);
+  const km = [...String(text).matchAll(/(\d+(?:\.\d+)?)\s*(?:km|kilomet(?:re|er)s?)/gi)].map((m) => Number(m[1]));
+  if (km.some((v) => Math.round(v * 30) > max)) return "over-time"; // ~30 min per km on foot, there and back
+  const walk = [...String(text).matchAll(/(\d+)\s*(?:-\s*)?minutes?\s+(?:walk|away|on foot)|(?:walk|cycle)\s+(?:of\s+)?(\d+)\s*minutes?/gi)].map((m) => Number(m[1] || m[2]));
+  if (walk.some((v) => v > max)) return "over-time";
+  return null;
+}
+
+// A legitimate map destination is built only from SerpApi's own fields.
+// No coords, no address, no link is ever invented - empty means "name only".
+const mapUrl = (p) => {
+  if (Number.isFinite(p.lat) && Number.isFinite(p.lng)) return `https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lng}`;
+  if (p.place_id) return `https://www.google.com/maps/search/?api=1&query_place_id=${encodeURIComponent(p.place_id)}`;
+  if (p.address) return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${p.name}, ${p.address}`)}`;
+  return "";
+};
+
+function buildLocation(place, raw) {
+  const map_url = mapUrl(place);
+  return {
+    name: String(place.name).trim().slice(0, 80),
+    reason: String((raw && raw.reason) || "").trim().slice(0, 180),
+    source: "serpapi",
+    ...(map_url ? { map_url } : {}),
+  };
+}
+
+function checkPlace(place, raw, c) {
+  const text = `${place.name} ${place.type || ""} ${place.address || ""} ${(raw && raw.reason) || ""}`;
+  const unsafe = findUnsafe(text, c);
+  if (unsafe) return { ok: false, reason: `location:unsafe:${unsafe}` };
+  if (c.budget === 0 && PAID_PLACE.test(text)) return { ok: false, reason: "location:paid-on-zero-budget" };
+  if (["solo", "secret", "dog"].includes(c.social) && SOCIAL_PLACE.test(text)) return { ok: false, reason: `location:social-mismatch:${c.social}` };
+  if (gentle(c) && EFFORT_PLACE.test(text)) return { ok: false, reason: "location:energy-mismatch" };
+  const travel = travelIssue(text, c);
+  if (travel) return { ok: false, reason: `location:${travel}` };
+  return { ok: true, location: buildLocation(place, raw) };
+}
+
+// A place is "named" by a text when at least two of its distinctive words
+// appear in it - the same bar the quality gate uses for hook specificity.
+const STOP_PLACE = new Set(["ghaziabad", "india", "city", "road", "street", "nagar", "area", "colony", "sector", "phase", "block", "near", "opp", "opposite"]);
+function namedPlace(q, places) {
+  if (!q || !places.length) return null;
+  const text = normName([q.title, q.hook, q.objective, ...(Array.isArray(q.steps) ? q.steps : [])].filter(Boolean).join(" "));
+  for (const p of places) {
+    const words = normName(p && p.name).split(" ").filter((w) => w.length > 3 && !STOP_PLACE.has(w));
+    if (!words.length) continue;
+    const hits = words.filter((w) => text.includes(w)).length;
+    if (words.length >= 2 ? hits >= 2 : hits === 1) return p;
+  }
+  return null;
+}
+
+// Returns {ok, location, reason?, place?, inferred?}.
+//  - model selected a place: it must be discovered + safe + a fit, otherwise
+//    the whole attempt is rejected with feedback (the place is never shown);
+//  - model selected nothing: the quest ships location-independent, unless its
+//    own text names a discovered place - then that place is surfaced, and a
+//    failed fit only means the banner stays hidden (the quest is never
+//    punished for a place it did not formally select).
+export function locationGate(q, c, places = []) {
+  const list = Array.isArray(places) ? places : [];
+  const raw = normLocation(q && q.location);
+  if (!raw) {
+    const named = namedPlace(q, list);
+    if (!named) return { ok: true, location: null };
+    const check = checkPlace(named, { name: named.name, reason: "" }, c);
+    return { ok: true, location: check.ok ? check.location : null, inferred: true };
+  }
+  const place = matchPlace(raw.name, list);
+  if (!place) return { ok: false, reason: "location:unverified-place", place: raw.name };
+  const check = checkPlace(place, raw, c);
+  if (!check.ok) return { ok: false, reason: check.reason, place: place.name };
+  return { ok: true, location: check.location };
+}
+
+// Curated fallback is location-independent by design: it earns a place only
+// when the curated text itself names a verified discovery that also passes
+// every check. Otherwise it stays generic and claims nothing about SerpApi.
+export function curatedLocation(q, places = [], c) {
+  const p = namedPlace(q, places);
+  if (!p || !c) return null;
+  const check = checkPlace(p, { name: p.name, reason: "" }, c);
+  return check.ok ? check.location : null;
+}
+
+const LOCATION_FEEDBACK = {
+  "location:unverified-place": 'the location gate rejected it: location.name must be copied EXACTLY from VERIFIED REAL PLACES, or "location" must be null. Never invent a place.',
+  "location:paid-on-zero-budget": "the location gate rejected it: that place costs money and this player has INR 0. Choose a verified free place, or set location to null.",
+  "location:energy-mismatch": "the location gate rejected it: that place needs more energy than this player has. Choose an easier verified place, or set location to null.",
+  "location:over-time": "the location gate rejected it: that place cannot be reached inside this player's time budget. Choose a closer verified place, or set location to null.",
+};
+const locationFeedback = (reason) =>
+  LOCATION_FEEDBACK[reason] ||
+  (reason.startsWith("location:unsafe:") ? "the location gate rejected it: that place is unsafe, private or not a public spot. Choose a different verified place, or set location to null."
+    : reason.startsWith("location:social-mismatch:") ? `the location gate rejected it: that place does not fit this player's social mode (${reason.split(":").pop()}). Choose a compatible verified place, or set location to null.`
+      : `the location gate rejected it: ${reason}. Choose a different verified place, or set location to null.`);
+
+// ---------------------------------------------------------------------------
 // STAGE 3: real-world grounding via SerpApi. Only discovered places are
 // handed to the model; if discovery fails the quest is location-independent.
 // ---------------------------------------------------------------------------
@@ -469,7 +617,19 @@ async function discover(c, signal) {
     for (const p of s.value) {
       if (p.title && !seen.has(p.title)) {
         seen.add(p.title);
-        out.push({ name: p.title, address: p.address || "", source: "serpapi" });
+        const g = p.gps_coordinates || {};
+        const lat = Number(g.latitude), lng = Number(g.longitude);
+        // Map data is kept only when SerpApi actually returned it: the player
+        // UI builds an "Open in Maps" link from these fields and never from
+        // anything invented here.
+        out.push({
+          name: p.title,
+          address: typeof p.address === "string" ? p.address : "",
+          type: typeof p.type === "string" ? p.type : "",
+          source: "serpapi",
+          ...(Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : {}),
+          ...(typeof p.place_id === "string" && p.place_id ? { place_id: p.place_id } : {}),
+        });
       }
     }
     if (out.length >= 6) break;
@@ -487,8 +647,12 @@ function buildPrompt(c, places, feedback, history) {
   const recentCats = history.slice(0, 6).map((h) => h.category).filter(Boolean);
   const playerWords = c.excuse ? `\n- the player's own words: "${c.excuse}" (take this seriously, the quest should feel like it was written for this person)` : "";
   const placeBlock = places.length
-    ? `VERIFIED REAL PLACES near the player (use by name only if listed, never invent a place): ${JSON.stringify(places)}`
-    : "NO PLACES VERIFIED. Write a location-independent quest using only generic public features near any home (street, park, corner, shopfront). Do NOT name any specific business or landmark.";
+    ? `VERIFIED REAL PLACES near the player (use by name only if listed, never invent a place): ${JSON.stringify(places.map((p) => ({ name: p.name, type: p.type || "" })))}
+LOCATION - host the quest at AT MOST ONE of those places, or use none:
+- output "location": {"name":"<name copied EXACTLY from the list>","reason":"<why it fits THIS player, max 120 chars>","source":"serpapi"} only when one listed place genuinely fits the player's mood, energy, time, budget, social mode and the archetype you chose, and is a safe, public, free-to-enter spot they can reach within ${max} minutes;
+- output "location": null when nothing on the list fits, or when you write a location-independent quest.
+Never invent a place, never name more than one. A place the player cannot afford or reach does not fit, no matter how good the quest is.`
+    : "NO PLACES VERIFIED. Write a location-independent quest using only generic public features near any home (street, park, corner, shopfront). Do NOT name any specific business or landmark, and always output \"location\": null.";
   const feedbackBlock = feedback
     ? `\nYOUR PREVIOUS ATTEMPT WAS REJECTED BY THE GATE: ${feedback}\nGenerate a DIFFERENT quest that fixes this. Do not retry the same idea.`
     : "";
@@ -516,7 +680,7 @@ COMMON (simple observation) | UNCOMMON (unusual neighbourhood discovery) | RARE 
 Rarity raises creativity and XP. Rarity NEVER raises risk, cost, or time beyond the player's limits.
 
 OUTPUT ONLY THE JSON OBJECT. No markdown, no commentary, no analysis, no text before or after the braces. Exactly this shape:
-{"title":"","hook":"","objective":"","steps":["","",""],"duration_minutes":0,"budget":0,"difficulty":"easy|medium|hard","xp":0,"category":"","done_when":"","safety":["",""],"rarity":"COMMON|UNCOMMON|RARE|EPIC|LEGENDARY","bonus_objective":"","secret_objective":""}
+{"title":"","hook":"","objective":"","steps":["","",""],"duration_minutes":0,"budget":0,"difficulty":"easy|medium|hard","xp":0,"category":"","done_when":"","safety":["",""],"rarity":"COMMON|UNCOMMON|RARE|EPIC|LEGENDARY","bonus_objective":"","secret_objective":"","location":null}
 
 THE CORE STANDARD - READ THIS TWICE
 A quest works when the player reads it and thinks "that's weird, I actually want to try that." It fails when the player thinks "an AI wrote a dramatic paragraph."
@@ -552,7 +716,7 @@ DESIGN RULES
 9. done_when: one concrete checkable sentence stating how the player knows it is finished.
 10. safety: 1-2 short practical warnings for the player.
 11. bonus_objective: an optional extra worth BONUS XP, "" if it does not fit. secret_objective: an optional hidden delight, "" if it does not fit - it must never be required to finish.
-12. Ground the quest in the verified places when given, otherwise keep it location-independent. Never hallucinate a specific place name.
+12. Ground the quest in ONE verified place through the "location" field when given, otherwise keep it location-independent with "location": null. Never hallucinate a specific place name.
 13. HARD SAFETY BANS - the quest must NEVER instruct any of: touching or moving electrical or utility infrastructure, climbing anything, entering private, restricted or abandoned places, crossing dangerous roads, approaching or talking to strangers unless the social mode explicitly allows it, disturbing wildlife, moving or damaging public property, fire, weapons, substances, rail tracks, sewers, anything illegal or after dark.
 14. VERBS: prefer observe, photograph, walk, notice, discover, listen, compare, find, explore, document. Avoid touch, move, climb, enter, approach, cross, interact unless clearly safe.
 15. Never repeat a recent category. No arbitrary precision ("exactly 37 steps"), no counting your own steps, no generic "take a walk".
@@ -898,6 +1062,19 @@ app.post("/api/quest", async (req, res) => {
     }
     trace.push({ stage: "safety", attempt, ok: true });
 
+    // The discovered place only reaches the player if Gemma selected one that
+    // survives grounding, safety and player-fit checks. A rejected selection
+    // regenerates; a kept one (or none) is what the UI will show.
+    const lg = locationGate(s.quest, c, places);
+    trace.push(lg.ok
+      ? { stage: "location", attempt, ok: true, place: lg.location ? lg.location.name : null, ...(lg.inferred ? { inferred: true } : {}), ...(lg.location && lg.location.map_url ? { map: "google-maps" } : {}) }
+      : { stage: "location", attempt, ok: false, reason: lg.reason, place: lg.place });
+    if (!lg.ok) {
+      feedback = locationFeedback(lg.reason);
+      continue;
+    }
+    s.quest.location = lg.location;
+
     // Rejected quests are recorded (title + hook only) so a fallback can be
     // diagnosed from the stored trace instead of by re-running the request.
     const seen = { title: s.quest.title, hook: s.quest.hook };
@@ -968,6 +1145,11 @@ app.post("/api/quest", async (req, res) => {
     failReason = failReason || "gates-rejected";
     trace.push({ stage: "safety", ok: true, source: "curated" });
     trace.push({ stage: "quality", ok: curatedQuality, source: "curated", ...(curatedQuality ? {} : { reason: curatedWhy || "curated pool", note: "curated content is hand-written; the AI taste gate does not apply to it" }) });
+    // A curated quest only ever gets a place it names itself - and the trace
+    // says so, so a curated fallback never claims SerpApi grounded it.
+    const cl = curatedLocation(quest, places, c);
+    quest.location = cl;
+    trace.push({ stage: "location", ok: true, source: "curated", place: cl ? cl.name : null, note: cl ? "verified discovery named by this curated quest" : "location-independent curated quest" });
     trace.push({ stage: "curated_fallback", ok: true, reason: failReason, note: "gemma did not deliver a quest that passed every gate inside the budget" });
     if (SENTRY_ON) Sentry.captureMessage(`quest fallback: ${JSON.stringify(trace)}`, "warning");
   }

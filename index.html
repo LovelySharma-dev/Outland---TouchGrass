@@ -6,7 +6,7 @@
 main{max-width:520px;margin:0 auto}h1{font-size:clamp(34px,9vw,56px);line-height:1;margin:28px 0 20px;letter-spacing:-.03em}
 .brand{font-weight:800;letter-spacing:.35em;color:var(--ac);font-size:13px;margin-bottom:6px}.tag{letter-spacing:.18em;font-size:13px;color:var(--mu);text-transform:uppercase}
 .g{display:grid;gap:10px}button{font:inherit;color:inherit;background:transparent;border:2px solid var(--mu);border-radius:16px;padding:14px 16px;text-align:left;cursor:pointer;transition:transform .12s,border-color .12s,background .12s}
-button:hover{border-color:var(--ac)}button:focus-visible,summary:focus-visible,input:focus-visible{outline:2px solid var(--ac);outline-offset:2px}button:active{transform:scale(.97)}button[aria-pressed=true]{background:var(--ac);color:var(--bg);border-color:var(--ac);font-weight:700}
+button:hover{border-color:var(--ac)}button:focus-visible,summary:focus-visible,input:focus-visible,a:focus-visible{outline:2px solid var(--ac);outline-offset:2px}button:active{transform:scale(.97)}button[aria-pressed=true]{background:var(--ac);color:var(--bg);border-color:var(--ac);font-weight:700}
 .go{background:var(--ac);color:var(--bg);border-color:var(--ac);font-weight:800;text-align:center;margin-top:18px;width:100%}.go:disabled{opacity:.45;cursor:not-allowed}.go:not(:disabled):hover{filter:brightness(1.06)}small{color:var(--mu)}
 .row{display:flex;flex-wrap:wrap;gap:8px}.row button{padding:10px 14px}.q{animation:r .6s cubic-bezier(.2,1.4,.4,1)}@keyframes r{from{opacity:0;transform:translateY(30px) scale(.95)}}
 .bar{height:4px;background:var(--mu);border-radius:4px;margin-bottom:24px}.bar i{display:block;height:100%;background:var(--ac);transition:width .3s}
@@ -39,6 +39,12 @@ ol{padding-left:20px;line-height:1.55;margin:0 0 6px}ol li{margin-bottom:9px}ol 
 .bonus b{display:block;color:var(--ac);font-size:10px;letter-spacing:.2em;margin-bottom:5px}
 .secret{width:100%;margin-top:10px;text-align:center;font-weight:800;letter-spacing:.14em;font-size:12px;border-style:dashed;text-transform:uppercase}
 .done{margin-top:16px;background:color-mix(in srgb,var(--ac) 10%,transparent);border-radius:14px;padding:13px 15px;font-size:15px;line-height:1.45}
+.place{display:flex;gap:11px;align-items:flex-start;margin:0 0 16px;background:color-mix(in srgb,var(--ac) 10%,transparent);border:1px solid color-mix(in srgb,var(--ac) 55%,transparent);border-radius:14px;padding:13px 15px;animation:rise .4s both}
+.place .pin{font-size:19px;line-height:1.15}
+.place b{display:block;font-size:15px;letter-spacing:.14em;text-transform:uppercase;color:var(--ac)}
+.place small{display:block;font-size:12px;color:var(--mu);margin-top:4px;letter-spacing:.02em}
+.place a{display:inline-block;margin-top:10px;padding:7px 12px;border:1px solid color-mix(in srgb,var(--ac) 60%,transparent);border-radius:10px;font-size:11px;letter-spacing:.16em;font-weight:800;color:var(--ac);text-decoration:none}
+.place a:hover{background:var(--ac);color:var(--bg)}
 .safe{margin-top:12px;font-size:12px;color:var(--mu);line-height:1.5}
 h1:focus{outline:none}
 .load{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-top:6px}
@@ -92,7 +98,10 @@ async function gen(){const t0=Date.now();if(ticker)clearInterval(ticker);
   v.innerHTML=`<div class="tag">OUTLAND · ERROR</div><h1 tabindex="-1">quest failed to spawn</h1><p>${esc(e.message)}</p><div class="cta"><button class="go" id="gen">TRY AGAIN</button><button class="ghost" id="change">CHANGE ANSWERS</button></div>`;focusH()}}
 function show({quest:q,source,trace,latency_ms,provider,fallback}){if(ticker){clearInterval(ticker);ticker=null}p.style.width="100%";
  const r=String(q.rarity||"COMMON").toLowerCase();
+ const pl=q.location&&q.location.name?q.location:null;
+ const maps=pl&&typeof pl.map_url==="string"&&/^https:\/\/www\.google\.com\/maps\//.test(pl.map_url)?pl.map_url:"";
  v.innerHTML=`<div class="q"><div class="accepted">QUEST ACCEPTED</div>
+ ${pl?`<div class="place"><span class="pin" aria-hidden="true">📍</span><div><b>${esc(pl.name)}</b><small>Your side quest happens here.</small>${maps?`<a href="${esc(maps)}" target="_blank" rel="noopener noreferrer">OPEN IN MAPS ↗</a>`:""}</div></div>`:""}
  <div class="rline"><span class="rarity r-${esc(r)}">${esc(q.rarity)}</span><span class="cat">${esc(q.category)}</span></div>
  <h1 class="qtitle" tabindex="-1">${esc(q.title)}</h1>
  <p class="hook">${esc(q.hook)}</p>

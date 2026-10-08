@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert";
-import { validate, safety, quality, fit, maxMinutes, redact, gemma, TIMING, freeOpenRouterModels, freeGoogleModels, curated, gentle } from "./server.js";
+import { readFileSync } from "node:fs";
+import { validate, safety, quality, fit, maxMinutes, redact, gemma, TIMING, freeOpenRouterModels, freeGoogleModels, curated, gentle, locationGate, curatedLocation } from "./server.js";
 
 const c = { state: "surprise", energy: 30, budget: 0, social: "solo", chaos: 3, city: "", excuse: "", minutes: 0 };
 
@@ -455,4 +456,138 @@ test("personalization keeps dog walks out of shops", () => {
   assert.match(fit(quest({ steps: ["Step inside the library and read the oldest plaque you find.",
     "Photograph the cracked number on the door outside.",
     "Compare it with the one across the street."] }), { ...c, social: "dog" }), /^dog-mismatch/);
+});
+
+// --- location grounding: SerpApi discovery -> Gemma selection -> quest ------
+// The discovery list a real /api/quest request hands to the gates.
+const places = [
+  { name: "Meghdootam Park", address: "Sector 21, Ghaziabad, Uttar Pradesh", type: "Park", source: "serpapi", lat: 28.6698, lng: 77.4536, place_id: "ChIJmghdootam000" },
+  { name: "Jungle Trail", address: "Lal Kuan, Ghaziabad", type: "Hiking area", source: "serpapi" },
+  { name: "Rashtriya Dalit Prerna Sthal", address: "Sector 16, Ghaziabad", type: "Park", source: "serpapi", lat: 28.6712, lng: 77.4501 },
+  { name: "Abandoned Factory Lane", address: "Ghaziabad", type: "Point of interest", source: "serpapi" },
+  { name: "Tea Town Cafe", address: "Shipra Mall Road, Ghaziabad", type: "Cafe", source: "serpapi" },
+  { name: "Weekend Party Lounge", address: "Ghaziabad", type: "Night club", source: "serpapi" },
+];
+const at = (name, reason, over = {}) => quest({ location: { name, reason, source: "serpapi" }, ...over });
+
+test("location: a verified SerpApi place reaches the quest JSON", () => {
+  const s = safety(at("Meghdootam Park", "quiet public green space for a low-energy observation quest"), c);
+  assert.equal(s.ok, true, s.reason);
+  assert.equal(s.quest.location.name, "Meghdootam Park");
+  const lg = locationGate(s.quest, c, places);
+  assert.equal(lg.ok, true, lg.reason);
+  assert.equal(lg.location.name, "Meghdootam Park", "the canonical discovered name is served");
+  assert.equal(lg.location.source, "serpapi");
+  assert.match(lg.location.reason, /quiet public green space/);
+  assert.match(lg.location.map_url, /^https:\/\/www\.google\.com\/maps\/search\/\?api=1&query=/, "real coordinates build a real map link");
+});
+
+test("location: the quest card renders the selected place", () => {
+  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  assert.match(html, /q\.location/, "the card reads the location off the quest");
+  assert.match(html, /📍/, "the place is shown with the pin");
+  assert.match(html, /Your side quest happens here\./);
+  assert.match(html, /OPEN IN MAPS/);
+  assert.match(html, /rel="noopener noreferrer"/);
+  assert.ok(html.includes("www\\.google\\.com\\/maps"), "the map link is only ever a google maps url");
+  assert.match(html, /\.place b\{[^}]*text-transform:uppercase/, "the place name is shown prominently");
+});
+
+test("location: Gemma selects no place so the location stays null", () => {
+  assert.equal(safety(quest({ location: null }), c).quest.location, null, "explicit null");
+  assert.equal(safety(quest(), c).quest.location, null, "field absent");
+  assert.equal(locationGate(safety(quest({ location: null }), c).quest, c, places).location, null, "nothing to show");
+  assert.equal(locationGate(safety(quest(), c).quest, c, places).ok, true);
+});
+
+test("location: an ungrounded or malformed selection never survives", () => {
+  const invented = locationGate(safety(at("Definitely Not A Real Park", "sounds nice"), c).quest, c, places);
+  assert.equal(invented.ok, false);
+  assert.equal(invented.reason, "location:unverified-place");
+  assert.equal(safety(quest({ location: { reason: "no name at all" } }), c).quest.location, null, "malformed drops to null");
+  assert.equal(safety(quest({ location: 42 }), c).quest.location, null, "wrong type drops to null");
+});
+
+test("location: SerpApi unavailable means a location-independent quest", () => {
+  const s = safety(at("Meghdootam Park", "fits the mood"), c);
+  const lg = locationGate(s.quest, c, []);
+  assert.equal(lg.ok, false, "with no discovery nothing can be verified");
+  assert.equal(lg.reason, "location:unverified-place");
+  // The rejected selection is dropped on the retry: with no places in the
+  // request there is nothing to ground, attach or display.
+  const retry = locationGate(safety(quest({ location: null }), c).quest, c, []);
+  assert.equal(retry.ok, true);
+  assert.equal(retry.location, null);
+});
+
+test("location: an unsafe place is rejected", () => {
+  const lg = locationGate(safety(at("Abandoned Factory Lane", "quiet industrial ruins"), c).quest, c, places);
+  assert.equal(lg.ok, false, "a restricted/unsafe spot is never served");
+  assert.match(lg.reason, /^location:unsafe:/);
+});
+
+test("location: a ₹0 player never gets a paid destination", () => {
+  const broke = { ...c, budget: 0 };
+  const lg = locationGate(safety(at("Tea Town Cafe", "cosy spot to sit with a chai"), broke).quest, broke, places);
+  assert.equal(lg.ok, false);
+  assert.equal(lg.reason, "location:paid-on-zero-budget");
+  const funded = { ...c, budget: 200 };
+  const ok = locationGate(safety(at("Tea Town Cafe", "cosy spot to sit with a chai"), funded).quest, funded, places);
+  assert.equal(ok.ok, true, ok.reason);
+  assert.equal(ok.location.name, "Tea Town Cafe");
+});
+
+test("location: a very low-energy player is not sent on a trek", () => {
+  const flat = { ...c, energy: 10, minutes: 15 };
+  const lg = locationGate(safety(at("Jungle Trail", "a 6 km uphill trek to a hidden waterfall"), flat).quest, flat, places);
+  assert.equal(lg.ok, false);
+  assert.match(lg.reason, /^location:(energy-mismatch|over-time)$/);
+  // The same place is allowed once the player actually has energy for it.
+  const hiked = locationGate(safety(at("Jungle Trail", "a short nature trail"), { ...c, energy: 80, minutes: 90 }).quest, { ...c, energy: 80, minutes: 90 }, places);
+  assert.equal(hiked.ok, true, hiked.reason);
+  assert.equal(hiked.location.name, "Jungle Trail");
+});
+
+test("location: a solo player is never sent to a group venue", () => {
+  const funded = { ...c, budget: 200 };
+  const lg = locationGate(safety(at("Weekend Party Lounge", "busy nightlife spot with a crowd"), funded).quest, funded, places);
+  assert.equal(lg.ok, false);
+  assert.equal(lg.reason, "location:social-mismatch:solo");
+  const crew = { ...funded, social: "group" };
+  assert.equal(locationGate(safety(at("Weekend Party Lounge", "busy nightlife spot with a crowd"), crew).quest, crew, places).ok, true);
+});
+
+test("location: a place named inside the quest text is surfaced", () => {
+  const s = safety(quest({
+    location: null,
+    hook: "Meghdootam Park has a bench nobody has ever sat on.",
+    objective: "Find the least-used bench in Meghdootam Park and photograph it.",
+  }), c);
+  const lg = locationGate(s.quest, c, places);
+  assert.equal(lg.ok, true, lg.reason);
+  assert.equal(lg.inferred, true, "the quest itself named the place");
+  assert.equal(lg.location.name, "Meghdootam Park");
+});
+
+test("location: no map link is invented without real map data", () => {
+  const bare = [{ name: "Quiet Bench Corner", address: "", type: "", source: "serpapi" }];
+  const lg = locationGate(safety(at("Quiet Bench Corner", "flat, close and free"), c).quest, c, bare);
+  assert.equal(lg.ok, true, lg.reason);
+  assert.equal(lg.location.name, "Quiet Bench Corner", "the name is still shown");
+  assert.equal("map_url" in lg.location, false, "no coordinates, no address, no link");
+});
+
+test("curated fallback: no misleading SerpApi attribution", () => {
+  const q = curated(c);
+  assert.equal(safety(q, c).quest.location, null, "curated quests ship without a location");
+  assert.equal(curatedLocation(q, places, c), null, "the curated text names none of the discoveries");
+  // A place is only ever attached when the curated quest itself names it,
+  // and then it is honestly labelled as the discovery it is.
+  const named = { ...q, objective: "Sit quietly in Meghdootam Park and observe.", steps: ["Sit quietly in Meghdootam Park for two minutes.", "Notice three quiet sounds."] };
+  const attached = curatedLocation(named, places, c);
+  assert.equal(attached && attached.name, "Meghdootam Park");
+  assert.equal(attached.source, "serpapi");
+  // Unsafe or unfitting places stay out of curated quests too.
+  const unsafeCurated = { ...q, objective: "Explore Abandoned Factory Lane." };
+  assert.equal(curatedLocation(unsafeCurated, places, c), null);
 });

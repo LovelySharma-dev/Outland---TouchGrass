@@ -1,6 +1,6 @@
 # OUTLAND — Your neighborhood has side quests
 
-[![Test Status](https://img.shields.io/badge/tests-62%2F62-brightgreen)](package.json)
+[![Test Status](https://img.shields.io/badge/tests-79%2F79-brightgreen)](package.json)
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](server.js)
 
 OUTLAND transforms real-world context into playable, safe, IRL (in-real-life) side quests. It is a lightweight web app that helps people "touch grass" by generating small, achievable missions tailored to their mood, energy, budget, and location.
@@ -10,6 +10,7 @@ OUTLAND transforms real-world context into playable, safe, IRL (in-real-life) si
 OUTLAND asks a few simple questions about your current state (mood, energy, minutes available, budget, social mode, chaos level, and optional city). From those inputs it can:
 
 - Discover nearby points of interest via SerpApi (when a city is provided)
+- Ground the quest in one real, vetted place and show that destination on the quest card
 - Generate a structured IRL quest using Google's Gemma models
 - Vet every quest through multi-layer safety, quality, and personalization gates
 - Serve a curated, hand-written fallback quest if AI inference is unavailable
@@ -48,18 +49,27 @@ The routing enforces timeouts, cooldowns, circuit breakers, and a single generat
 
 When a city is provided, OUTLAND queries SerpApi to discover real-world context (nearby parks, viewpoints, interesting spots, neighborhoods). These discovered places are passed to Gemma to ground quests in the player's actual environment. If SerpApi is unavailable or no city is provided, quests remain location-independent.
 
+Discovery is not a display: Gemma selects **at most one** discovered place that fits the player's mood, energy, time, budget, social mode and archetype, and returns it as a structured `location` object:
+
+```json
+"location": { "name": "Meghdootam Park", "reason": "quiet public green space suitable for a low-energy observation quest", "source": "serpapi" }
+```
+
+The selection then has to clear the location gate before the player sees it: it must be one of the discovered places (never an invented one), safe and public, free when the budget is ₹0, reachable inside the available time and energy, and appropriate for the social mode. A rejected selection is regenerated with feedback; a quest that survives always carries a verified place or `location: null`. The quest card shows the selected destination prominently (`📍 MEGHDOOTAM PARK · Your side quest happens here.`) plus an **Open in Maps** link built only from SerpApi's own coordinates/place id/address — never from invented data. The pipeline trace still lists every discovered place for debugging, while curated fallback quests stay location-independent unless the curated text itself names a verified discovery.
+
 ## Complete Architecture
 
 ```
 User state
- → SerpApi discovery (optional, real-world context)
- → Gemma (structured generation with JSON schema)
- → structured quest (title, hook, objective, steps, bonus/secret, rewards)
+ → SerpApi discovery (optional, real-world context: places + map data)
+ → Gemma (structured generation with JSON schema, picks at most one verified place)
+ → structured quest (title, hook, objective, steps, bonus/secret, rewards, location)
  → safety gate (block unsafe, illegal, dangerous, or policy-violating content)
+ → location gate (verified grounding only: safe, free, reachable, social-mode fit)
  → quality/personalization gate (concrete steps, distinct from recent, matches energy/budget/social/chaos)
- → quest UI (accessible, mobile-first)
+ → quest UI (selected place shown prominently + Open in Maps when real map data exists)
  → real-world completion (player goes outside and completes steps)
- → curated fallback when inference is unavailable (hand-written, gate-vetted)
+ → curated fallback when inference is unavailable (hand-written, gate-vetted, location-independent)
 ```
 
 ## Safety System
@@ -112,8 +122,8 @@ The 4 quests cover a range of energy levels (0–81+) with appropriate durations
 
 ## Testing
 
-- **62/62 tests passing** (`npm test`)
-- Covers safety, quality, personalization, routing (timeouts/circuit breakers/failover), latency bounds, deduplication, and edge cases
+- **79/79 tests passing** (`npm test`)
+- Covers safety, quality, personalization, location grounding (verified SerpApi selection, budget/energy/social/time compatibility, map links), routing (timeouts/circuit breakers/failover), latency bounds, deduplication, and edge cases
 - No test modifications were made beyond what was already committed
 
 ## Local Development
