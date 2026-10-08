@@ -1,9 +1,5 @@
 <p align="center">
-<!-- ═══════════════════════════════════════════════════════════════════════
-     ANIMATED HERO — pure inline SVG + SMIL. No CDN, no build step.
-     GitHub renders <animate>/<animateTransform> natively in READMEs.
-     ═══════════════════════════════════════════════════════════════════════ -->
-<svg width="880" height="320" viewBox="0 0 880 320" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="OUTLAND — your neighborhood has side quests">
+<svg width="880" height="230" viewBox="0 0 880 230" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="OUTLAND — your neighborhood has side quests">
   <defs>
     <radialGradient id="glow" cx="50%" cy="50%" r="50%">
       <stop offset="0%" stop-color="#c6ff3d" stop-opacity="0.55"/>
@@ -19,15 +15,12 @@
       <animate attributeName="x2" values="0;1760" dur="4.5s" repeatCount="indefinite"/>
     </linearGradient>
   </defs>
-
   <!-- card -->
-  <rect x="1" y="1" width="878" height="318" rx="24" fill="#0e0e10" stroke="#2a2a30" stroke-width="2"/>
-
+  <rect x="1" y="1" width="878" height="228" rx="24" fill="#0e0e10" stroke="#2a2a30" stroke-width="2"/>
   <!-- pulsing glow behind the mark -->
-  <circle cx="180" cy="150" r="120" fill="url(#glow)"/>
-
+  <circle cx="160" cy="105" r="88" fill="url(#glow)"/>
   <!-- the Outland mark: a tripping triangle / grass blade, gently bobbing -->
-  <g>
+  <g transform="translate(160 105) scale(0.72) translate(-180 -150)">
     <path d="M180 96 L228 210 L180 188 L132 210 Z" fill="#c6ff3d">
       <animateTransform attributeName="transform" type="translate" values="0 0; 0 -8; 0 0" dur="2.6s" repeatCount="indefinite" calcMode="spline" keySplines="0.4 0 0.2 1; 0.4 0 0.2 1"/>
     </path>
@@ -37,40 +30,36 @@
       <animateMotion dur="6s" repeatCount="indefinite" path="M 244,150 A 64,64 0 1 1 243.9,149"/>
     </circle>
   </g>
-
   <!-- wordmark -->
-  <text x="300" y="130" font-family="ui-sans-serif, system-ui, sans-serif" font-size="64" font-weight="800" letter-spacing="10" fill="#f4f1ea">OUT<tspan fill="#c6ff3d">LAND</tspan></text>
-
+  <text x="270" y="94" font-family="ui-sans-serif, system-ui, sans-serif" font-size="56" font-weight="800" letter-spacing="9" fill="#f4f1ea">OUT<tspan fill="#c6ff3d">LAND</tspan></text>
   <!-- tagline: words fade in one by one, then loop -->
-  <g font-family="ui-sans-serif, system-ui, sans-serif" font-size="20" fill="#9a9aa2" letter-spacing="4">
-    <text x="302" y="172">STOP<tspan fill="#f4f1ea"> SCROLLING.</tspan></text>
-    <text x="302" y="172" opacity="0">STOP SCROLLING.<tspan fill="#c6ff3d"> START QUESTING.</tspan>
+  <g font-family="ui-sans-serif, system-ui, sans-serif" font-size="18" fill="#9a9aa2" letter-spacing="4">
+    <text x="272" y="126">STOP<tspan fill="#f4f1ea"> SCROLLING.</tspan></text>
+    <text x="272" y="126" opacity="0">STOP SCROLLING.<tspan fill="#c6ff3d"> START QUESTING.</tspan>
       <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.45;0.55;0.9;1" dur="5s" repeatCount="indefinite"/>
     </text>
   </g>
-
   <!-- animated stat chips -->
-  <g font-family="ui-sans-serif, system-ui, sans-serif" font-size="14" font-weight="600">
+  <g font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" font-weight="600">
     <g>
-      <rect x="300" y="210" width="170" height="34" rx="17" fill="#17171b" stroke="#3a3a42"/>
-      <text x="318" y="232" fill="#c6ff3d">⚡</text><text x="342" y="232" fill="#d5d2ca">quest in ≤ 14s</text>
+      <rect x="270" y="156" width="160" height="30" rx="15" fill="#17171b" stroke="#3a3a42"/>
+      <text x="286" y="175" fill="#c6ff3d">⚡</text><text x="308" y="175" fill="#d5d2ca">quest in ≤ 14s</text>
       <animateTransform attributeName="transform" type="translate" values="0 0;0 -4;0 0" dur="3.4s" repeatCount="indefinite"/>
     </g>
     <g>
-      <rect x="486" y="210" width="180" height="34" rx="17" fill="#17171b" stroke="#3a3a42"/>
-      <text x="504" y="232" fill="#c6ff3d">📍</text><text x="528" y="232" fill="#d5d2ca">real, vetted places</text>
+      <rect x="444" y="156" width="172" height="30" rx="15" fill="#17171b" stroke="#3a3a42"/>
+      <text x="460" y="175" fill="#c6ff3d">📍</text><text x="482" y="175" fill="#d5d2ca">real, vetted places</text>
       <animateTransform attributeName="transform" type="translate" values="0 0;0 -4;0 0" dur="3.4s" begin="0.5s" repeatCount="indefinite"/>
     </g>
     <g>
-      <rect x="682" y="210" width="160" height="34" rx="17" fill="#17171b" stroke="#3a3a42"/>
-      <text x="700" y="232" fill="#c6ff3d">🛡</text><text x="724" y="232" fill="#d5d2ca">safety-gated</text>
+      <rect x="630" y="156" width="148" height="30" rx="15" fill="#17171b" stroke="#3a3a42"/>
+      <text x="646" y="175" fill="#c6ff3d">🛡</text><text x="668" y="175" fill="#d5d2ca">safety-gated</text>
       <animateTransform attributeName="transform" type="translate" values="0 0;0 -4;0 0" dur="3.4s" begin="1s" repeatCount="indefinite"/>
     </g>
   </g>
-
   <!-- sweeping light beam across the footer -->
-  <rect x="0" y="286" width="220" height="2" fill="url(#beam)"/>
-  <text x="440" y="300" text-anchor="middle" font-family="ui-monospace, monospace" font-size="12" fill="#57575f" letter-spacing="2">FREE-TIER GEMMA · SERPAPI · 96/96 TESTS · NODE ≥ 20 · RENDER-READY</text>
+  <rect x="0" y="198" width="220" height="2" fill="url(#beam)"/>
+  <text x="440" y="214" text-anchor="middle" font-family="ui-monospace, monospace" font-size="11" fill="#57575f" letter-spacing="2">FREE-TIER GEMMA · SERPAPI · 96/96 TESTS · NODE ≥ 20 · RENDER-READY</text>
 </svg>
 </p>
 
