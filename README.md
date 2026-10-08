@@ -1,195 +1,508 @@
-# OUTLAND — Your neighborhood has side quests
+<p align="center">
+<!-- ═══════════════════════════════════════════════════════════════════════
+     ANIMATED HERO — pure inline SVG + SMIL. No CDN, no build step.
+     GitHub renders <animate>/<animateTransform> natively in READMEs.
+     ═══════════════════════════════════════════════════════════════════════ -->
+<svg width="880" height="320" viewBox="0 0 880 320" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="OUTLAND — your neighborhood has side quests">
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#c6ff3d" stop-opacity="0.55"/>
+      <stop offset="55%" stop-color="#c6ff3d" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#c6ff3d" stop-opacity="0"/>
+      <animate attributeName="opacity" values="0.55;1;0.55" dur="3.2s" repeatCount="indefinite"/>
+    </radialGradient>
+    <linearGradient id="beam" x1="0" y1="0" x2="880" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#c6ff3d" stop-opacity="0"/>
+      <stop offset=".5" stop-color="#c6ff3d" stop-opacity=".9"/>
+      <stop offset="1" stop-color="#c6ff3d" stop-opacity="0"/>
+      <animate attributeName="x1" values="-880;880" dur="4.5s" repeatCount="indefinite"/>
+      <animate attributeName="x2" values="0;1760" dur="4.5s" repeatCount="indefinite"/>
+    </linearGradient>
+  </defs>
 
-[![Test Status](https://img.shields.io/badge/tests-79%2F79-brightgreen)](package.json)
-[![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](server.js)
+  <!-- card -->
+  <rect x="1" y="1" width="878" height="318" rx="24" fill="#0e0e10" stroke="#2a2a30" stroke-width="2"/>
 
-OUTLAND transforms real-world context into playable, safe, IRL (in-real-life) side quests. It is a lightweight web app that helps people "touch grass" by generating small, achievable missions tailored to their mood, energy, budget, and location.
+  <!-- pulsing glow behind the mark -->
+  <circle cx="180" cy="150" r="120" fill="url(#glow)"/>
 
-## What It Does
+  <!-- the Outland mark: a tripping triangle / grass blade, gently bobbing -->
+  <g>
+    <path d="M180 96 L228 210 L180 188 L132 210 Z" fill="#c6ff3d">
+      <animateTransform attributeName="transform" type="translate" values="0 0; 0 -8; 0 0" dur="2.6s" repeatCount="indefinite" calcMode="spline" keySplines="0.4 0 0.2 1; 0.4 0 0.2 1"/>
+    </path>
+    <!-- orbiting "quest marker" dot -->
+    <circle cx="180" cy="150" r="64" stroke="#c6ff3d" stroke-opacity="0.25" stroke-dasharray="4 10" fill="none"/>
+    <circle r="5" fill="#f4f1ea">
+      <animateMotion dur="6s" repeatCount="indefinite" path="M 244,150 A 64,64 0 1 1 243.9,149"/>
+    </circle>
+  </g>
 
-OUTLAND asks a few simple questions about your current state (mood, energy, minutes available, budget, social mode, chaos level, and optional city). From those inputs it can:
+  <!-- wordmark -->
+  <text x="300" y="130" font-family="ui-sans-serif, system-ui, sans-serif" font-size="64" font-weight="800" letter-spacing="10" fill="#f4f1ea">OUT<tspan fill="#c6ff3d">LAND</tspan></text>
 
-- Discover nearby points of interest via SerpApi (when a city is provided)
-- Ground the quest in one real, vetted place and show that destination on the quest card
-- Generate a structured IRL quest using Google's Gemma models
-- Vet every quest through multi-layer safety, quality, and personalization gates
-- Serve a curated, hand-written fallback quest if AI inference is unavailable
-- Track the full pipeline in an honest trace that clearly labels the source
+  <!-- tagline: words fade in one by one, then loop -->
+  <g font-family="ui-sans-serif, system-ui, sans-serif" font-size="20" fill="#9a9aa2" letter-spacing="4">
+    <text x="302" y="172">STOP<tspan fill="#f4f1ea"> SCROLLING.</tspan></text>
+    <text x="302" y="172" opacity="0">STOP SCROLLING.<tspan fill="#c6ff3d"> START QUESTING.</tspan>
+      <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.45;0.55;0.9;1" dur="5s" repeatCount="indefinite"/>
+    </text>
+  </g>
 
-Quests are concrete micro-adventures: observe something new, explore an unfamiliar street, sit somewhere you've never sat, or reach a new viewpoint. They emphasize low-cost, low-barrier activities that get you outside without pressure.
+  <!-- animated stat chips -->
+  <g font-family="ui-sans-serif, system-ui, sans-serif" font-size="14" font-weight="600">
+    <g>
+      <rect x="300" y="210" width="170" height="34" rx="17" fill="#17171b" stroke="#3a3a42"/>
+      <text x="318" y="232" fill="#c6ff3d">⚡</text><text x="342" y="232" fill="#d5d2ca">quest in ≤ 14s</text>
+      <animateTransform attributeName="transform" type="translate" values="0 0;0 -4;0 0" dur="3.4s" repeatCount="indefinite"/>
+    </g>
+    <g>
+      <rect x="486" y="210" width="180" height="34" rx="17" fill="#17171b" stroke="#3a3a42"/>
+      <text x="504" y="232" fill="#c6ff3d">📍</text><text x="528" y="232" fill="#d5d2ca">real, vetted places</text>
+      <animateTransform attributeName="transform" type="translate" values="0 0;0 -4;0 0" dur="3.4s" begin="0.5s" repeatCount="indefinite"/>
+    </g>
+    <g>
+      <rect x="682" y="210" width="160" height="34" rx="17" fill="#17171b" stroke="#3a3a42"/>
+      <text x="700" y="232" fill="#c6ff3d">🛡</text><text x="724" y="232" fill="#d5d2ca">safety-gated</text>
+      <animateTransform attributeName="transform" type="translate" values="0 0;0 -4;0 0" dur="3.4s" begin="1s" repeatCount="indefinite"/>
+    </g>
+  </g>
 
-## The Problem: "Touch Grass"
+  <!-- sweeping light beam across the footer -->
+  <rect x="0" y="286" width="220" height="2" fill="url(#beam)"/>
+  <text x="440" y="300" text-anchor="middle" font-family="ui-monospace, monospace" font-size="12" fill="#57575f" letter-spacing="2">FREE-TIER GEMMA · SERPAPI · 96/96 TESTS · NODE ≥ 20 · RENDER-READY</text>
+</svg>
+</p>
 
-Many people want to step away from screens but don't know what to do in the moment. OUTLAND addresses this by turning "I should go outside" into a specific, bite-sized side quest that fits your current energy level and constraints.
+<p align="center">
+  <a href="https://img.shields.io/badge/tests-96%2F96-brightgreen?style=flat-square&logo=jest&logoColor=white"><img alt="96/96 tests" src="https://img.shields.io/badge/tests-96%2F96-brightgreen?style=flat-square&logo=jest&logoColor=white"/></a>
+  <a href="server.js"><img alt="build passing" src="https://img.shields.io/badge/build-passing-brightgreen?style=flat-square"/></a>
+  <img alt="node >= 20" src="https://img.shields.io/badge/node-%3E%3D20-brightgreen?style=flat-square&logo=nodedotjs&logoColor=white"/>
+  <img alt="free tier only" src="https://img.shields.io/badge/models-free%20tier%20only-4c9f70?style=flat-square"/>
+  <img alt="license MIT" src="https://img.shields.io/badge/license-MIT-blue?style=flat-square"/>
+  <a href="#-deploy-in-5-minutes"><img alt="Render ready" src="https://img.shields.io/badge/deploy-Render-46e3b7?style=flat-square&logo=render&logoColor=white"/></a>
+</p>
 
-## Why AI Is Central
+<h1 align="center">OUTLAND — your neighborhood has side quests</h1>
 
-Gemma isn't used as a decorative chatbot. It is responsible for transforming the user's mood, constraints, and real-world context into a **playable IRL side quest**. The AI takes structured state + discovered real places (when available) and produces a quest with concrete steps, objectives, and gamified rewards. This allows quests to adapt to context rather than forcing everyone through identical prompts.
+<p align="center">
+  <b>Stop scrolling. Start questing. Your couch has had enough. 💀</b><br>
+  An AI side-quest generator that turns “I should go outside” into a concrete,
+  safe, <i>real-place-grounded</i> micro-adventure — built on free-tier Gemma.
+</p>
 
-## How Gemma Is Actually Used
+---
 
-OUTLAND uses Gemma through a staged pipeline:
+## ✨ What it does
 
-1. Extracts structured user state (mood, energy, minutes, budget ₹0–₹500, social solo/friend/group, chaos 0–3, optional city)
-2. Optionally discovers nearby places via SerpApi to ground the quest in reality
-3. Sends a strict JSON schema to Gemma with constraints (must be IRL, no paid activities unless budget allows, must match energy/social profile, avoid sensitive locations, etc.)
-4. Parses and validates the structured response
-5. Passes through safety, quality, and personalization gates
-6. Serves the quest with full traceability
+OUTLAND asks a handful of questions about your current state — **mood, energy, budget, social mode, chaos level, optional city** — and turns them into a playable IRL side quest:
 
-**Actual provider/model (as configured and used):** `google-generative-ai` / `gemma-4-26b-a4b-it`
+- 🗺️ Discovers nearby points of interest via **SerpApi** (when a city is given)
+- 📍 Grounds the quest in **one real, vetted place** and shows it on the card with an **Open in Maps** link
+- 🤖 Generates a structured quest with **Google's Gemma** (free tiers only — OpenRouter → Google AI Studio)
+- 🛡️ Vets everything through **safety → location → quality → personalization** gates
+- 🧺 Serves a **curated, hand-written fallback** when inference is unavailable — and *labels it honestly*
+- 📜 Traces the entire pipeline, every stage, every rejection
 
-Free-tier Gemma is accessed via:
-- Primary: OpenRouter free endpoints (`google/gemma-4-26b-a4b-it:free`, `google/gemma-4-31b-it:free`) with strict free-only enforcement
-- Fallback: Google AI Studio (`gemma-4-26b-a4b-it`, `gemma-4-31b-it`) when OpenRouter is rate-limited
+Quests are concrete micro-adventures: *observe something new, find the oldest doorway on your block, sit somewhere you've never sat.* Low cost, low barrier, zero pressure.
 
-The routing enforces timeouts, cooldowns, circuit breakers, and a single generation budget per request. When Gemma cannot deliver a gate-passing quest within the budget, OUTLAND falls back to curated content—**never** fabricating a Gemma success.
+---
 
-## SerpApi's Role
+## 🎮 The 60-second flow
 
-When a city is provided, OUTLAND queries SerpApi to discover real-world context (nearby parks, viewpoints, interesting spots, neighborhoods). These discovered places are passed to Gemma to ground quests in the player's actual environment. If SerpApi is unavailable or no city is provided, quests remain location-independent.
+```
+┌──────────────┐   ┌──────────────────┐   ┌────────────────┐   ┌─────────────────┐
+│  ①  MOOD     │──▶│  ②  ENERGY       │──▶│  ③  CHAOS      │──▶│  ④  QUEST CARD  │
+│  “I've been  │   │  budget · social │   │  1 → 5         │   │  📍 place · XP  │
+│   scrolling  │   │  city (optional) │   │  TOUCH GRASS   │   │  steps · secret │
+│   for 3 hrs” │   │  IRL DLC check   │   │  FINAL BOSS    │   │  Open in Maps ↗ │
+└──────────────┘   └──────────────────┘   └────────────────┘   └─────────────────┘
+                          │                       │                      ▲
+                          └────── POST /api/quest ┴──────────────────────┘
+                                 ≤ 14s worst case · honest trace on every card
+```
 
-Discovery is not a display: Gemma selects **at most one** discovered place that fits the player's mood, energy, time, budget, social mode and archetype, and returns it as a structured `location` object:
+---
+
+## 🧠 Why AI is central
+
+Gemma is not a decorative chatbot. It is the engine that transforms structured state + discovered real places into a **playable quest**: concrete steps, objectives, gamified rewards, and — when a city is provided — **at most one** real location that actually fits your energy, time, budget and social mode. Same prompt for everyone would produce the same walk around the block; Gemma makes it *yours*.
+
+### How Gemma is actually used
+
+| Stage | What happens |
+|---|---|
+| 1 · State | Structured player state extracted: mood, energy, minutes, budget (₹0–₹500), social, chaos, city |
+| 2 · Discovery | SerpApi (optional) finds real places + map data in parallel with generation |
+| 3 · Generation | Strict JSON schema + hard constraints sent to Gemma (IRL-only, no paid activities unless budget allows, no sensitive locations…) |
+| 4 · Parse | Response parsed & schema-validated |
+| 5 · Gates | Safety → location → quality → personalization gates, each rejectable with actionable feedback |
+| 6 · Regen | **One** short, deadline-bounded regeneration (or a single-field *repair*) after a gate rejection |
+| 7 · Serve | Quest served with full traceability — or a curated fallback, clearly labeled |
+
+**Provider/model (as configured):** `google-generative-ai` / `gemma-4-26b-a4b-it`
+
+- **Route 1 (primary):** OpenRouter free endpoints — `google/gemma-4-26b-a4b-it:free`, `google/gemma-4-31b-it:free` (code enforces `:free` suffixes; paid models are never routed)
+- **Route 2 (fallback):** Google AI Studio — `gemma-4-26b-a4b-it`, `gemma-4-31b-it` (code enforces the `gemma-` prefix)
+
+Both routes sit behind **timeouts, cooldowns, and per-process circuit breakers** with escalating backoff. A single generation budget per request means a dead provider can never make a player wait.
+
+---
+
+## 🗺️ SerpApi's role
+
+When a city is provided, SerpApi discovers real-world context (parks, viewpoints, landmarks, quiet streets). Discovery is **not a display dump**: Gemma selects *at most one* discovered place that fits the player, returned as a structured object:
 
 ```json
-"location": { "name": "Meghdootam Park", "reason": "quiet public green space suitable for a low-energy observation quest", "source": "serpapi" }
+"location": {
+  "name": "Meghdootam Park",
+  "reason": "quiet public green space suitable for a low-energy observation quest",
+  "source": "serpapi"
+}
 ```
 
-The selection then has to clear the location gate before the player sees it: it must be one of the discovered places (never an invented one), safe and public, free when the budget is ₹0, reachable inside the available time and energy, and appropriate for the social mode. A rejected selection is regenerated with feedback; a quest that survives always carries a verified place or `location: null`. The quest card shows the selected destination prominently (`📍 MEGHDOOTAM PARK · Your side quest happens here.`) plus an **Open in Maps** link built only from SerpApi's own coordinates/place id/address — never from invented data. The pipeline trace still lists every discovered place for debugging, while curated fallback quests stay location-independent unless the curated text itself names a verified discovery.
+Before the player sees it, the **location gate** verifies that it:
 
-## Complete Architecture
+- ✅ is one of the *actually discovered* places — never invented
+- ✅ is safe and public
+- ✅ is free when the budget is ₹0
+- ✅ is reachable inside the available time and energy
+- ✅ fits the social mode
+
+A rejected selection is regenerated with feedback. A surviving quest carries a verified place — or `location: null`. The card shows the destination prominently (`📍 MEGHDOOTAM PARK · Your side quest happens here.`) plus an **Open in Maps ↗** link built *only* from SerpApi's own coordinates / place id / address — never from invented data.
+
+---
+
+## 🏗️ Complete architecture
+
+```mermaid
+flowchart TD
+    A["🧍 Player state<br/>mood · energy · budget · social · chaos · city"] --> B
+    subgraph P["⚡ Parallel pipeline · hard deadline ≤ 14s"]
+        B["🗺️ SerpApi discovery<br/>≤ 4s · real places + map data"]
+        C["🤖 Gemma generation<br/>OpenRouter :free → Google gemma-<br/>initial ≤ 10s · one regen ≤ 5s"]
+    end
+    B --> D{"🛡️ Safety gate"}
+    C --> D
+    D -->|reject| R["🔁 one field-repair or regeneration<br/>deadline-bounded · gates re-run"]
+    R --> D
+    D -->|pass| E{"📍 Location gate<br/>verified · safe · free · reachable"}
+    E -->|reject| R
+    E -->|pass| F{"✨ Quality gate<br/>concrete steps · not generic · not poetry"}
+    F -->|reject| R
+    F -->|pass| G{"🎯 Personalization gate<br/>energy · budget · social · chaos fit"}
+    G -->|reject| R
+    G -->|pass| H["🏆 Quest card<br/>place + Open in Maps · XP · secret objective"]
+    D -.->|"all routes unhealthy / budget spent"| FTL["🧺 Curated fallback<br/>hand-written · gate-vetted · honestly labeled"]
+    FTL --> H
+    H --> I["🌿 Player touches grass"]
+```
+
+<sub>Every arrow above is a stage in the <code>trace</code> array returned on each response — open the “pipeline trace” details on any quest card to see it live.</sub>
+
+---
+
+## ⏱️ Latency contract
+
+Every value is a **hard ceiling, never a target**, and is surfaced in the trace instead of hidden:
+
+| Budget | Value | Notes |
+|---|---|---|
+| Discovery | **≤ 4 s** | Runs in parallel with generation |
+| Initial generation | **≤ 10 s** | OpenRouter attempt ≤ 7 s, Google attempt ≤ 9 s |
+| One regeneration | **≤ 5 s** | A gate rejection must never stack a second long wait |
+| Bounded output | **700 tokens** | Without `maxOutputTokens` Gemma rambles for 40–75 s |
+| **Worst-case request** | **≈ 14 s** | Then a curated fallback is served — always |
 
 ```
-User state
- → SerpApi discovery (optional, real-world context: places + map data)
- → Gemma (structured generation with JSON schema, picks at most one verified place)
- → structured quest (title, hook, objective, steps, bonus/secret, rewards, location)
- → safety gate (block unsafe, illegal, dangerous, or policy-violating content)
- → location gate (verified grounding only: safe, free, reachable, social-mode fit)
- → quality/personalization gate (concrete steps, distinct from recent, matches energy/budget/social/chaos)
- → quest UI (selected place shown prominently + Open in Maps when real map data exists)
- → real-world completion (player goes outside and completes steps)
- → curated fallback when inference is unavailable (hand-written, gate-vetted, location-independent)
+ request timeline (worst case)
+ 0s                4s              10s            14s
+ ├─ discovery ─────┤                │              │
+ ├────── generation ────────────────┤              │
+ │                   ├─ regen (only if rejected) ──┤
+ │                                                └─▶ curated fallback · honest trace
+ healthy path:  Gemma answers in ~3–6s → gates pass → quest served as GEMMA
 ```
 
-## Safety System
+A field repair (one weak field on an otherwise strong quest) asks for only **380 tokens** and finishes proportionally sooner inside the regeneration budget.
 
-Every quest—whether AI-generated or curated—must pass safety checks. The system blocks:
-- Dangerous, illegal, or harmful activities
-- Sensitive/private locations or invasive behavior
-- Content that encourages unsafe practices
-- Anything that violates the "IRL, touch grass" intent
+---
 
-Curated fallback quests are hand-written and also vetted through the same safety rules.
+## 🛡️ Safety system
 
-## Honest Labeling: Gemma vs Curated Fallback
+Every quest — AI-generated **or** curated — must pass the safety gate. Blocked:
 
-The pipeline trace **explicitly distinguishes** sources:
+- ☠️ Dangerous, illegal, or harmful activities
+- 🚫 Sensitive/private locations or invasive behavior
+- 📵 Anything encouraging unsafe practices
+- 🛋️ Anything that violates the “IRL, touch grass” intent
 
-- `GEMMA` / `gemma_generate` / `gemma_regenerate` — real model output
-- `SERPAPI` — discovery stage
-- `CURATED FALLBACK` / `curated_fallback` — hand-written fallback served due to inference unavailability
-- `REGENERATION` — feedback-driven retry
-- `SAFETY REJECTION` — blocked by safety gate
-- `QUALITY REJECTION` — blocked by quality gate
-- `TIMEOUT` — generation exceeded budget
-- `RATE LIMIT` — provider returned 429/rate limited
+The safety gate is **never skipped or weakened** on the repair/regeneration path — it is simply re-run on the merged result. Curated fallback quests are hand-written and vetted by the same rules.
 
-**If Gemma succeeds, the response shows the real provider and model. If fallback happens, it is clearly labeled as curated fallback.** Curated content is never labeled as Gemma.
+---
 
-## Gamification
+## 🏷️ Honest labeling: Gemma vs curated
 
-Each quest includes:
-- **XP** based on difficulty/duration
-- **Rarity**: COMMON, UNCOMMON, RARE, EPIC
-- **Bonus objective**: optional extra challenge
-- **Secret objective**: optional hidden goal
-- **Archetypes**: EXPLORER, MEMORY QUEST, OBSERVER, BOSS QUEST, NATURE, PHOTO HUNT, etc.
-- **Energy-aware scaling**: matches low/normal/high energy states
+The trace **explicitly distinguishes** sources — curated content is *never* labeled as Gemma:
 
-## Curated Fallback Pool
+| Trace label | Meaning |
+|---|---|
+| `GEMMA` / `gemma_generate` / `gemma_regenerate` | real model output |
+| `SERPAPI` | discovery stage |
+| `CURATED FALLBACK` / `curated_fallback` | hand-written quest served due to inference unavailability |
+| `REGENERATION` | feedback-driven retry |
+| `SAFETY REJECTION` | blocked by safety gate |
+| `QUALITY REJECTION` | blocked by quality gate |
+| `TIMEOUT` | generation exceeded budget |
+| `RATE LIMIT` | provider returned 429 |
+| `circuit_check` | all routes unhealthy → fast fallback, no provider wait |
 
-The committed code includes **4** curated, hand-written quests. Each is energy-aware (min energy thresholds), location-independent, concrete, and passes the same safety and personalization gates as Gemma-generated quests. They are designed to feel like real Outland side quests—not generic "go for a walk" filler.
+**If Gemma succeeds, the card shows the real provider and model. If fallback happens, it is labeled curated.** That's the whole honesty contract.
 
-The 4 quests cover a range of energy levels (0–81+) with appropriate durations, budgets (₹0), and concrete steps.
+---
 
-## Accessibility & Visual QA
+## 🎰 Gamification
 
-- Mobile-first, accessible UI with proper focus states
-- Dark/light mode support
-- Visual QA verified across desktop and mobile breakpoints
-- Contrast and focus checks pass
+| Rarity | Color | Example |
+|---|---|---|
+| COMMON | <span style="color:#9a9aa2">⚪ gray</span> | `THE 400-METER EXPEDITION` |
+| UNCOMMON | <span style="color:#7bd44a">🟢 green</span> | `THREE SOUNDS` |
+| RARE | <span style="color:#5ac8fa">🔵 blue</span> | `THE NEIGHBOURHOOD LORE RUN` |
+| EPIC | <span style="color:#c08cff">🟣 violet</span> | `FARTHER THAN USUAL` |
+| LEGENDARY | <span style="color:#ffb020">🟠 amber</span> | reserved for the unhinged |
 
-## Testing
+Each quest carries:
 
-- **79/79 tests passing** (`npm test`)
-- Covers safety, quality, personalization, location grounding (verified SerpApi selection, budget/energy/social/time compatibility, map links), routing (timeouts/circuit breakers/failover), latency bounds, deduplication, and edge cases
-- No test modifications were made beyond what was already committed
+- **XP** scaled by difficulty & duration
+- **Rarity** + **archetype** (EXPLORER, MEMORY QUEST, OBSERVER, BOSS QUEST, NATURE, PHOTO HUNT, SOUND HUNT…)
+- **Bonus objective** — optional extra challenge
+- **Secret objective** — hidden until tapped (`??? SECRET OBJECTIVE`)
+- **Energy-aware scaling** — a 10 % battery human never gets a 75-minute boss quest
 
-## Local Development
+---
+
+## 🧺 Curated fallback pool
+
+**10** hand-written, energy-aware, location-independent quests (energy floors 0 → 81). They pass the same safety and personalization gates as Gemma output and are designed to feel like *real Outland side quests* — not “go for a walk” filler:
+
+<details>
+<summary><b>Expand the pool</b> (energy floor · rarity · archetype)</summary>
+
+| Min energy | Title | Rarity | Archetype | Duration |
+|---:|---|---|---|---:|
+| 0 | THE 400-METER EXPEDITION | COMMON | EXPLORER | 12 min |
+| 0 | QUIET PATCH | COMMON | NATURE | 8 min |
+| 0 | ONE LEAF QUEST | COMMON | PHOTO HUNT | 8 min |
+| 5 | THREE SOUNDS | UNCOMMON | SOUND HUNT | 10 min |
+| 10 | STREET LETTERS | COMMON | PHOTO HUNT | 12 min |
+| 15 | THE LOOP OF UNPROVOKED FRESH AIR | UNCOMMON | MEMORY QUEST | 25 min |
+| 20 | COLOR HUNT | UNCOMMON | COLOR QUEST | 20 min |
+| 30 | THE NEIGHBOURHOOD LORE RUN | RARE | OBSERVER | 45 min |
+| 40 | MICRO EXPEDITION | UNCOMMON | EXPLORER | 30 min |
+| 81 | FARTHER THAN USUAL | EPIC | BOSS QUEST | 75 min |
+
+</details>
+
+---
+
+## 🎬 UI & motion
+
+The whole app is a single accessible `index.html` — no framework, no build step:
+
+- 🌗 **Dark / light themes**, each designed as its own palette (paper + ink + forest accent), with an inline pre-paint script so there is **no flash of the wrong theme**
+- 🎞️ **GSAP + ScrollTrigger** timeline on the quest card (title → hook → location → stats → steps stagger) — served **straight from `node_modules`** at `/vendor/gsap.min.js` and `/vendor/ScrollTrigger.min.js`: no CDN, no third-party runtime, no API key
+- 🪂 If GSAP ever fails to load, **CSS keyframes** take over automatically
+- ♿ **`prefers-reduced-motion`** disables all animation
+- 🧭 Proper focus management (`tabindex="-1"` headings, visible focus rings), `aria-pressed` chips, `aria-live` progress region
+- 📍 Map links are only rendered when the server returned a grounded `https://www.google.com/maps/…` URL — anything else shows the place name with no fake affordance
+
+---
+
+## ✅ Testing
+
+<p>
+  <img alt="96 of 96" src="https://img.shields.io/badge/96%2F96%20pass-brightgreen?style=flat-square"/> &nbsp;
+  <code>npm test</code> · node:test · zero extra test deps
+</p>
+
+Coverage includes: safety gate, quality gate, personalization gate, location grounding (verified SerpApi selection, budget/energy/social/time compatibility, map-link rules), provider routing (timeouts, 429s, circuit breakers, failover, escalating cooldowns), the latency contract, regeneration deadlines, field repair, deduplication, curated selection, and edge cases.
+
+<details>
+<summary>Reproducible demo & QA scripts</summary>
 
 ```bash
-# Install dependencies
-npm install
-
-# Start server (dev)
-npm start
-
-# Run tests
-npm test
-
-# Type-check/build validation
-npm run build
-
-# Run demo (12-request reproducible demo)
-npm run demo
-
-# Run UI QA
-npm run ui-qa
+npm run demo     # 12-request latency/routing report against a running server
+npm run live     # live quest attempts across both Gemma routes
+npm run ui-qa    # headless-Chrome UI QA pass (needs Chrome installed)
 ```
 
-## Environment Variables
+</details>
 
-Required keys (free-tier only):
+---
+
+## 🚀 Local development
+
+```bash
+git clone https://github.com/LovelySharma-dev/Outland---TouchGrass.git
+cd Outland---TouchGrass
+npm install
+cp .env.example .env        # then fill in your free-tier keys
+npm start                   # → http://localhost:3000
+```
+
+| Command | What it does |
+|---|---|
+| `npm start` | run the server |
+| `npm test` | full test suite (96 tests) |
+| `npm run build` | syntax-check `server.js` (used as the Render build step) |
+| `npm run demo` | 12-request reproducible demo report |
+| `npm run live` | live quest attempts |
+| `npm run ui-qa` | headless Chrome UI QA |
+
+---
+
+## 🔐 Environment variables
+
+Required keys (free-tier only — the code never routes a paid model):
 
 ```env
-# OpenRouter free Gemma (primary)
+# Route 1 · primary — OpenRouter free Gemma
 OPENROUTER_API_KEY=
 
-# Google AI Studio Gemma (fallback when free tier rate-limited)
+# Route 2 · fallback — Google AI Studio Gemma
 GEMMA_API_KEY=
 
-# SerpApi for real-world place discovery (optional but recommended)
+# Real-world place discovery (optional but recommended)
 SERPAPI_KEY=
 ```
 
-Optional overrides:
-```env
-# Must end in :free for OpenRouter
-# OPENROUTER_MODEL=google/gemma-4-26b-a4b-it:free,google/gemma-4-31b-it:free
+Optional:
 
-# Must start with gemma- for Google
+```env
+# Model overrides — free-only filters are enforced in server.js:
+# OpenRouter ids must end in ":free", Google ids must start with "gemma-"
+# OPENROUTER_MODEL=google/gemma-4-26b-a4b-it:free,google/gemma-4-31b-it:free
 # GEMMA_MODEL=gemma-4-26b-a4b-it,gemma-4-31b-it
 
-# Optional (not required for core functionality)
+# Reported by /health, not required for core functionality
 # SENTRY_DSN=
 # MONGODB_URI=
 ```
 
-The code enforces free-only model filtering and never routes paid models.
+---
 
-## Deployment (Render)
+## ☁️ Deploy in 5 minutes
 
-Render is configured via `render.yaml`:
-- Build: `npm install`
-- Start: `npm start`
-- Health check: `/health`
-- Environment variables as above
+Deployment is fully specified by [`render.yaml`](render.yaml) (Blueprint):
 
-## Known Limitation: Free-Tier Gemma Reliability
+1. **Push to GitHub** — this repo
+2. On [render.com](https://render.com) → **New → Blueprint** → pick the repo; Render reads `render.yaml` automatically
+3. Fill the env vars the Blueprint prompts for (`sync: false` keys):
+   `OPENROUTER_API_KEY` · `GEMMA_API_KEY` · `SERPAPI_KEY` (optional: `SENTRY_DSN`, `MONGODB_URI`)
+4. Deploy — build runs `npm install && npm run build`, start runs `npm start`
+5. Render health-checks **`/health`**, which reports route circuits, timing budgets and which keys are live
 
-Due to the constraints of free inference endpoints (timeouts, 429s, rate limits), real Gemma generation succeeds intermittently in live conditions. To maintain a safe, reliable experience:
-- Requests are bounded by strict timeouts and a generation budget
-- Circuit breakers and cooldowns prevent hammering endpoints
-- If Gemma cannot produce a gate-passing quest in time, the system serves a **curated fallback** that still clears all safety/personalization gates
-- The trace is always honest
+```yaml
+# render.yaml (source of truth)
+buildCommand: npm install && npm run build
+startCommand: npm start
+healthCheckPath: /health
+```
+
+The server binds `process.env.PORT` (Render sets it automatically) and defaults to `3000` locally. Free-tier instances spin down when idle — the first request after idle takes ~30s, then the ≤ 14s contract applies.
+
+### Verifying a deploy
+
+```bash
+curl https://<your-app>.onrender.com/health
+```
+
+```jsonc
+{
+  "ok": true,
+  "routes": [
+    { "provider": "openrouter", "models": ["google/gemma-4-26b-a4b-it:free", "..."], "circuit": "closed" },
+    { "provider": "google-generative-ai", "models": ["gemma-4-26b-a4b-it", "..."], "circuit": "closed" }
+  ],
+  "timing": { "gen_budget_ms": 10000, "regen_budget_ms": 5000, "max_output_tokens": 700 },
+  "openrouter": true, "gemma_key": true, "serpapi": true,
+  "mongo": false, "sentry": false
+}
+```
+
+Then: `curl -X POST …/api/quest -H 'Content-Type: application/json' -d '{"state":"scrolling","energy":50,"budget":0,"social":"solo","chaos":2,"city":"Ghaziabad"}'` and check that `source` is honestly `gemma-…` or `curated-fallback`.
+
+---
+
+## 📡 API at a glance
+
+<details>
+<summary><code>POST /api/quest</code> · request & response</summary>
+
+**Request**
+
+```jsonc
+{
+  "state":   "scrolling",          // mood key from the UI
+  "energy":  50,                   // 10 | 30 | 50 | 80 | 100
+  "budget":  0,                    // 0 | 50 | 200 | 500 (₹)
+  "social":  "solo",               // solo | yapper | group | dog | meet-humans | secret
+  "chaos":   2,                    // 1..5
+  "city":    "Ghaziabad",          // optional — enables SerpApi grounding
+  "excuse":  "my brain has 47 tabs open"  // optional, ≤200 chars
+}
+```
+
+**Response (success)**
+
+```jsonc
+{
+  "quest": {
+    "title": "…", "hook": "…", "objective": "…",
+    "steps": ["…", "…"],
+    "bonus_objective": "…", "secret_objective": "…",
+    "xp": 55, "rarity": "UNCOMMON", "category": "OBSERVER",
+    "difficulty": "medium", "duration_minutes": 25, "budget": 0,
+    "done_when": "…", "safety": ["…"],
+    "location": { "name": "…", "reason": "…", "map_url": "https://www.google.com/maps/…", "via": "serpapi" }
+  },
+  "source": "gemma",                     // or "curated-fallback"
+  "provider": "google-generative-ai",    // present only on real Gemma output
+  "trace": [ /* every pipeline stage */ ],
+  "latency_ms": 4821
+}
+```
+
+**Errors:** `400 invalid input` · `503` nothing safe to serve right now.
+
+</details>
+
+<details>
+<summary><code>GET /health</code></summary>
+
+Returns route circuit states (open/closed + retry timers), the full `TIMING` budget, and which integration keys are configured. Used by Render's health check and by the demo script.
+
+</details>
+
+---
+
+## ⚠️ Known limitation: free-tier Gemma reliability
+
+Free inference endpoints time out and return 429s. Real Gemma generation therefore succeeds *intermittently* in live conditions. OUTLAND keeps the experience safe and predictable by:
+
+- ✅ bounding every request by strict timeouts and a generation budget
+- ✅ circuit-breaking dead routes with **escalating cooldowns** (30s → 60s → 120s cap) that outlive the failing attempt
+- ✅ skipping all-wait via a fast `circuit_check` → curated fallback in ~30 ms
+- ✅ serving a gate-vetted curated fallback when Gemma can't deliver in budget
+- ✅ **never** fabricating a Gemma success — the trace always tells the truth
+
+---
+
+## 📄 License
+
+[MIT](LICENSE) — go touch grass.
+
+<p align="center">
+  <sub>Built with free-tier Gemma · SerpApi · Express · GSAP · zero paid inference</sub><br>
+  <sub><b>OUTLAND</b> · your neighborhood has side quests</sub>
+</p>

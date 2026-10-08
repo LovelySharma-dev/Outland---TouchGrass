@@ -15,6 +15,18 @@ app.use(express.json({ limit: "16kb" }));
 app.use(express.static(path.join(DIR, "public")));
 app.get("/", (_q, s) => s.sendFile(path.join(DIR, "index.html")));
 
+// GSAP + ScrollTrigger are served straight out of node_modules: the UI keeps
+// its motion polish with no CDN, no third-party runtime and no API key. If
+// the files are ever missing the route 404s and the browser falls back to the
+// CSS animations already in the stylesheet.
+const vendorFile = (name) => path.join(DIR, "node_modules", "gsap", "dist", name);
+for (const file of ["gsap.min.js", "ScrollTrigger.min.js"]) {
+  app.get(`/vendor/${file}`, (_q, s) => {
+    s.type("application/javascript");
+    s.sendFile(vendorFile(file), (e) => { if (e && !s.headersSent) s.status(404).end(); });
+  });
+}
+
 // ---------------------------------------------------------------------------
 // AI routes. Outland runs on GEMMA only, FREE tiers only:
 //   route 1 - OpenRouter free gemma models (":free" ids are enforced below)
@@ -48,43 +60,74 @@ const ROUTES = [
 
 // Latency contract. Every value is a hard ceiling, never a target, and it is
 // surfaced in the pipeline trace instead of being hidden:
-//   discovery (parallel)  <= 6s
-//   generation            <= 25s  (OpenRouter attempt <=7s, Google <=16s)
-//   worst case request    <= ~31s, then a curated fallback quest is returned.
+//   discovery (parallel)  <= 4s
+//   initial generation    <= 10s (OpenRouter attempt <=7s, Google <=9s)
+//   one regeneration      <= 5s  (tight: a gate rejection must not stack)
+//   worst case request    <= ~14s, then a curated fallback quest is returned.
+// A production-style test once showed the old contract failing a player: a
+// real Gemma answer was rejected by the safety gate (unsafe:restricted-area),
+// regeneration then burned ~15.8s on a second provider attempt and the whole
+// request took ~30.3s before the curated fallback arrived. A gate rejection
+// now gets ONE short attempt - a field repair when the miss is a single weak
+// field, otherwise a full regeneration - bounded by regen_budget_ms AND by
+// the original generation deadline, whichever is sooner. If it cannot finish
+// inside that window the curated fallback is served immediately with the
+// rejection still in the trace. The safety gate itself is untouched.
 // Bounded output is what actually keeps gemma fast: without maxOutputTokens
 // the model rambles for 40-75s; capped it answers the real prompt in ~6s.
 // 700 (not 900): generation time tracks output length, and a 900-token
-// rambling answer overran the 16s attempt cap on a slow attempt.
+// rambling answer overran the attempt cap on a slow attempt.
 export const TIMING = {
-  discovery_ms: 6000,
+  // Discovery shares the request with generation, so it is cut at 4s: with
+  // gen_budget_ms below, discovery + generation can never exceed ~14s.
+  discovery_ms: 4000,
   primary_attempt_ms: 7000,
-  fallback_attempt_ms: 16000,
-  gen_budget_ms: 25000,
-  min_attempt_ms: 4000,
-  min_regenerate_ms: 9000,
+  fallback_attempt_ms: 9000,
+  gen_budget_ms: 10000,
+  // The regeneration budget is deliberately much smaller than the initial
+  // generation budget. attemptDeadline() enforces it, so a request that is
+  // already 8s old can never start a second long wait.
+  regen_budget_ms: 5000,
+  min_attempt_ms: 3000,
+  min_regenerate_ms: 3000,
   cooldown_429_ms: 60000,
   // A cooldown must outlive the attempt that produced it, otherwise the next
   // request re-probes a provider that is still broken and pays the full
-  // 16s timeout again. 30s > the 16s attempt cap, and consecutive failures
+  // attempt timeout again. 30s > the 9s attempt cap, and consecutive failures
   // double it (see openCircuit) up to cooldown_max_ms.
   cooldown_error_ms: 30000,
   cooldown_max_ms: 120000,
   max_output_tokens: 700,
+  // A field repair only rewrites one field, so it asks for far less text and
+  // finishes proportionally sooner inside the regeneration budget.
+  repair_output_tokens: 380,
 };
+
+// The deadline handed to generation attempt N. Attempt 1 gets the whole
+// generation budget; the single regeneration after a gate rejection gets the
+// much tighter regeneration budget, whichever is sooner. This is the single
+// place a regeneration deadline is decided, so the "a quality rejection
+// cannot create an unbounded wait" guarantee is testable on its own.
+export function attemptDeadline({ now = Date.now(), attempt, genDeadline, timings = TIMING }) {
+  if (attempt <= 1) return genDeadline;
+  return Math.min(genDeadline, now + (timings.regen_budget_ms ?? TIMING.regen_budget_ms));
+}
 
 // Circuit breaker per route, held for the life of the process so it survives
 // across requests. A route that fails is skipped for its whole cooldown
 // instead of being re-probed: a 429 costs ~1s on the first request and ~0ms
-// on every request during the next 60s, a timeout costs 16s once and then
-// nothing until the cooldown expires. Consecutive failures escalate the
+// on every request during the next 60s, a timeout costs one attempt cap
+// (<=9s) once and then nothing until the cooldown expires. Consecutive failures escalate the
 // cooldown (base, 2x, 4x ... capped at cooldown_max_ms) and only a successful
 // attempt clears it, so a provider that keeps hanging is skipped for longer
 // and longer instead of being retried every few seconds.
 const routeHealth = new Map();
 const routeKey = (r) => `${r.provider}:${r.host}`;
 export function resetRouteHealth() { routeHealth.clear(); }
-export function routeState(route, now = Date.now()) {
-  const h = routeHealth.get(routeKey(route));
+// `health` is injectable so the circuit-open path of generateQuest can be
+// tested without mutating the process-global breaker that real requests share.
+export function routeState(route, now = Date.now(), health = routeHealth) {
+  const h = health.get(routeKey(route));
   return h && h.until > now ? { ...h, retry_in_ms: h.until - now } : null;
 }
 
@@ -328,19 +371,134 @@ function hit(text, re) {
 }
 
 // What the model must change when a quality gate rejects it. Regeneration is
-// only worth its ~8s if the retry is told something actionable.
+// only worth its few seconds if the retry is told something actionable, so
+// each entry says what to write, not merely what failed.
 const HOWTO = {
-  "generic-hook": "the hook must name one real object or place AND one marker that pins it down (a number, oldest, nobody, never, only)",
+  "generic-hook": "make the hook specific to the actual observable task and the real place: name the concrete thing the player will look at, plus one marker (a number, oldest, nobody, never, only) that pins it down. Do not describe a mood.",
   "ai-poetry": "no trailer voice - drop destiny/epic/answer the call and describe the actual thing the player will look at",
   "no-discovery-action": "at least two steps must ask the player to find, notice, photograph, count or listen for something real",
   "too-generic": "the title, objective and steps must be about this specific place, not about going for a walk",
   "weak-hook": "write a hook of at least 12 characters that names a real thing",
+  "weak-title": "title must be ALL CAPS, 2-6 words, a mission name about the concrete discovery",
+  "weak-step": "every step must be a concrete outdoor action of at least 12 characters that names something specific",
   "duplicate-quest": "you have already written this quest - change the place, the object and the activity, not just the title",
   "near-duplicate-objective": "the objective repeats a recent one almost word for word - make it a different activity",
   "near-duplicate-activity": "the steps repeat a recent quest almost word for word - invent a new activity",
   "repeat-category": "the last two quests were the same archetype - switch to a different kind of outing",
+  "not-outdoors": "name the outdoor thing each step happens at - street, bench, doorway, tree, sky - not an indoor object",
+  "arbitrary-instruction": "remove the arbitrary precision - no exact step counts or measured distances",
+  "needs-unavailable-equipment": "the player has no equipment - rewrite the step around what they already carry",
+  "too-short": "raise duration_minutes to at least 5",
+  "mood-mismatch-energy": "lower difficulty to match this player's energy and shorten the plan",
+  "mood-mismatch-excuse": "this player is exhausted - make it easy and under 45 minutes",
+  "no-category": "set category to exactly one of the archetypes listed above",
 };
 const gateFeedback = (bad) => `quality gate rejected it: ${bad}. ${HOWTO[bad] || "fix the reason above"}`;
+
+// ---------------------------------------------------------------------------
+// Field-level repair. A good structured quest with one weak field (the
+// "generic-hook" miss on an otherwise strong generation) does not deserve a
+// second full 700-token generation: Gemma is asked for exactly the weak
+// field, the answer is merged into the raw quest it came from, and every gate
+// - safety included - runs again on the result. The safety gate is never
+// skipped or weakened by the repair path; it is simply re-run on the merged
+// object. Reasons not listed here (duplicates, personalization misses, unsafe
+// content) need a different idea, so they still cost one short full
+// regeneration and nothing more.
+// ---------------------------------------------------------------------------
+const REPAIR_FIELDS = {
+  "generic-hook": ["hook"],
+  "weak-hook": ["hook"],
+  "weak-title": ["title"],
+  "no-category": ["category"],
+  "ai-poetry": ["title", "hook", "objective"],
+  "too-generic": ["title", "objective", "steps"],
+  "no-discovery-action": ["steps"],
+  "weak-step": ["steps"],
+  "not-outdoors": ["steps"],
+  "arbitrary-instruction": ["steps"],
+  "needs-unavailable-equipment": ["steps"],
+  "too-short": ["duration_minutes"],
+  "over-time": ["duration_minutes", "difficulty"],
+  "over-budget": ["budget"],
+  "mood-mismatch-energy": ["difficulty", "duration_minutes"],
+  "mood-mismatch-excuse": ["difficulty", "duration_minutes"],
+  // A location miss is the cheapest repair of all: swap the place (or drop
+  // it) without touching the quest around it.
+  "location": ["location"],
+  "location:unverified-place": ["location"],
+  "location:paid-on-zero-budget": ["location"],
+  "location:energy-mismatch": ["location"],
+  "location:over-time": ["location"],
+};
+
+// Reasons arrive suffixed ("over-time:90>40", "location:paid-on-zero-budget"),
+// so the lookup is done on the head of the reason.
+export function repairFields(reason) {
+  const r = String(reason || "");
+  if (r.startsWith("location:")) {
+    if (/^location:(unverified-place|paid-on-zero-budget|energy-mismatch|over-time)/.test(r)) {
+      return ["location"];
+    }
+    return null;
+  }
+  const head = r.split(":")[0];
+  return REPAIR_FIELDS[head] || null;
+}
+
+const FIELD_RULES = {
+  hook: `HOOK RULE: one line, max 140 chars, second person, and it states the actual interesting thing - never a mood. It must name the concrete detail, discovery or surprise the quest is built around (or the player's own stated words).
+- GOOD: "There is a bench you have never sat on. It is probably offended."
+- GOOD: "The oldest door on your block has a number nobody can read anymore."
+- BAD: "Your party stands at the threshold; make your entrance count."
+Never write destiny, fate, legend, glory, epic, odyssey, embark, prophecy, unleash or "make it count".`,
+  title: "TITLE RULE: ALL CAPS, 2-6 words, a mission name about the concrete discovery. Never an instruction, never generic epic language.",
+  objective: "OBJECTIVE RULE: one sentence describing the win, with the concrete thing named.",
+  steps: `STEPS RULE: 2 to 5 short concrete outdoor actions in public space, each naming something specific. At least two must be an act of finding, noticing, photographing, counting, comparing or listening to something real. Never "explore" or "look around". No exact step counts, no equipment the player does not have.`,
+  category: "CATEGORY RULE: exactly one archetype name from the list the quest was designed against, in that exact form.",
+  duration_minutes: "DURATION RULE: an integer number of minutes that fits the player's time budget and energy.",
+  budget: "BUDGET RULE: an integer in INR that is at or below the player's budget; 0 when nothing has to be paid for.",
+  difficulty: "DIFFICULTY RULE: easy | medium | hard, honest for this player's energy (low energy means easy).",
+  location: 'LOCATION RULE: copy a name EXACTLY from the verified place list, or output "location": null. Never invent a place, never name more than one, never add coordinates or an address.',
+};
+
+// One short, single-purpose prompt: fix the weak field(s), change nothing
+// else. Small output -> small latency, which is what lets a quality rejection
+// stay inside the regeneration budget.
+export function buildRepairPrompt(c, quest, fields, reason, places = []) {
+  const max = maxMinutes(c);
+  const keep = {
+    title: quest.title, hook: quest.hook, objective: quest.objective, steps: quest.steps,
+    duration_minutes: quest.duration_minutes, budget: quest.budget, difficulty: quest.difficulty,
+    xp: quest.xp, category: quest.category, done_when: quest.done_when,
+    rarity: quest.rarity, bonus_objective: quest.bonus_objective, secret_objective: quest.secret_objective,
+    location: quest.location || null,
+  };
+  const placeList = places.length
+    ? `VERIFIED REAL PLACES (only these may appear in "location"): ${JSON.stringify(places.map((p) => p.name))}`
+    : "NO PLACES VERIFIED - output \"location\": null.";
+  const why = String(reason).startsWith("location:") ? locationFeedback(reason) : gateFeedback(reason);
+  return `You are fixing ONE weak part of an existing OUTLAND quest. OUTLAND writes real-world side quests a player finishes on foot, in public, near home.
+
+EXISTING QUEST (everything you do not return stays exactly as written):
+${JSON.stringify(keep, null, 1)}
+
+WHY IT WAS REJECTED
+${why}
+
+PLAYER
+- mood: ${STATE_TEXT[c.state]}${c.excuse ? `; their own words: "${c.excuse}"` : ""}
+- energy ${c.energy}% · time ${max} minutes · budget INR ${c.budget} · social: ${SOCIAL_TEXT[c.social]} · chaos ${c.chaos}/5
+${placeList}
+
+FIX ONLY THESE FIELD${fields.length > 1 ? "S" : ""}: ${fields.join(", ")}
+${fields.map((f) => FIELD_RULES[f] || "").filter(Boolean).join("\n")}
+
+SAFETY (applies to what you write): never instruct touching electrical or utility infrastructure, climbing, entering private/restricted/abandoned places, crossing dangerous roads, approaching strangers unless the social mode allows it, disturbing wildlife, damaging property, fire, weapons, substances, rail tracks, sewers, anything illegal or after dark.
+
+OUTPUT ONLY A JSON OBJECT WITH EXACTLY THESE KEYS: ${JSON.stringify(fields)}. No markdown, no commentary, no text before or after the braces.`;
+}
+
 
 // history: [{title, category, objective, steps}] newest first - drives
 // anti-repetition and near-duplicate detection.
@@ -501,17 +659,22 @@ const mapUrl = (p) => {
   return "";
 };
 
-function buildLocation(place, raw) {
+function buildLocation(place, raw, via) {
   const map_url = mapUrl(place);
   return {
     name: String(place.name).trim().slice(0, 80),
     reason: String((raw && raw.reason) || "").trim().slice(0, 180),
+    // source: where the place DATA came from (always the SerpApi discovery
+    // list - never an invention). via: how it reached THIS quest, so a
+    // curated quest that happens to name a discovered place is labelled
+    // curated instead of being read as a Gemma/SerpApi selection.
     source: "serpapi",
+    via: via || "gemma",
     ...(map_url ? { map_url } : {}),
   };
 }
 
-function checkPlace(place, raw, c) {
+function checkPlace(place, raw, c, via) {
   const text = `${place.name} ${place.type || ""} ${place.address || ""} ${(raw && raw.reason) || ""}`;
   const unsafe = findUnsafe(text, c);
   if (unsafe) return { ok: false, reason: `location:unsafe:${unsafe}` };
@@ -520,7 +683,7 @@ function checkPlace(place, raw, c) {
   if (gentle(c) && EFFORT_PLACE.test(text)) return { ok: false, reason: "location:energy-mismatch" };
   const travel = travelIssue(text, c);
   if (travel) return { ok: false, reason: `location:${travel}` };
-  return { ok: true, location: buildLocation(place, raw) };
+  return { ok: true, location: buildLocation(place, raw, via) };
 }
 
 // A place is "named" by a text when at least two of its distinctive words
@@ -551,12 +714,12 @@ export function locationGate(q, c, places = []) {
   if (!raw) {
     const named = namedPlace(q, list);
     if (!named) return { ok: true, location: null };
-    const check = checkPlace(named, { name: named.name, reason: "" }, c);
+    const check = checkPlace(named, { name: named.name, reason: "" }, c, "inferred");
     return { ok: true, location: check.ok ? check.location : null, inferred: true };
   }
   const place = matchPlace(raw.name, list);
   if (!place) return { ok: false, reason: "location:unverified-place", place: raw.name };
-  const check = checkPlace(place, raw, c);
+  const check = checkPlace(place, raw, c, "gemma");
   if (!check.ok) return { ok: false, reason: check.reason, place: place.name };
   return { ok: true, location: check.location };
 }
@@ -564,10 +727,13 @@ export function locationGate(q, c, places = []) {
 // Curated fallback is location-independent by design: it earns a place only
 // when the curated text itself names a verified discovery that also passes
 // every check. Otherwise it stays generic and claims nothing about SerpApi.
+// The place it does earn is labelled via:"curated" - the discovery list is
+// still where the place data came from, but SerpApi/Gemma did not generate
+// this quest and the UI must not imply that they did.
 export function curatedLocation(q, places = [], c) {
   const p = namedPlace(q, places);
   if (!p || !c) return null;
-  const check = checkPlace(p, { name: p.name, reason: "" }, c);
+  const check = checkPlace(p, { name: p.name, reason: "" }, c, "curated");
   return check.ok ? check.location : null;
 }
 
@@ -741,12 +907,15 @@ function httpError(status, j) {
 // Returns {text, finish, tokens}: finish/tokens are recorded in the trace so
 // a truncated answer (finishReason MAX_TOKENS) is visible instead of looking
 // like a generic parse failure.
-async function callRoute(route, model, prompt, signal) {
+async function callRoute(route, model, prompt, signal, opts = {}) {
+  // A field repair asks for far less text than a full generation; a smaller
+  // cap is what actually makes the regeneration finish inside its budget.
+  const maxTokens = Number.isFinite(opts.max_output_tokens) ? opts.max_output_tokens : TIMING.max_output_tokens;
   if (route.kind === "openrouter") {
     const r = await fetch(`https://${route.host}/api/v1/chat/completions`, {
       method: "POST", signal,
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${route.key}`, "X-Title": "Outland" },
-      body: JSON.stringify({ model, temperature: 0.8, max_tokens: TIMING.max_output_tokens, messages: [{ role: "user", content: prompt }] }),
+      body: JSON.stringify({ model, temperature: 0.8, max_tokens: maxTokens, messages: [{ role: "user", content: prompt }] }),
     });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw httpError(r.status, j);
@@ -757,7 +926,7 @@ async function callRoute(route, model, prompt, signal) {
     method: "POST", signal, headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { responseMimeType: "application/json", temperature: 0.8, maxOutputTokens: TIMING.max_output_tokens },
+      generationConfig: { responseMimeType: "application/json", temperature: 0.8, maxOutputTokens: maxTokens },
     }),
   });
   const j = await r.json().catch(() => ({}));
@@ -805,8 +974,10 @@ function attemptSignal(outer, ms) {
 }
 
 // opts (all optional, tests inject fakes): routes, call, health, timings,
-// deadline, signal. Throws with .routeTrace attached so the caller can keep
-// every attempt visible even when the whole chain fails.
+// deadline, signal, prompt (use a caller-built prompt, e.g. a field repair),
+// max_output_tokens, budget_ms (label used in the exhaustion message).
+// Throws with .routeTrace attached so the caller can keep every attempt
+// visible even when the whole chain fails.
 export async function gemma(c, places, feedback, history, opts = {}) {
   const routes = opts.routes && opts.routes.length ? opts.routes : ROUTES;
   if (!routes.length) throw new Error("no free gemma route configured (set OPENROUTER_API_KEY or GEMMA_API_KEY)");
@@ -815,7 +986,9 @@ export async function gemma(c, places, feedback, history, opts = {}) {
   const T = opts.timings || TIMING;
   const outer = opts.signal || null;
   const deadline = opts.deadline || Date.now() + T.gen_budget_ms;
-  const prompt = buildPrompt(c, places, feedback, history);
+  const budgetMs = Number.isFinite(opts.budget_ms) ? opts.budget_ms : T.gen_budget_ms;
+  const maxOutputTokens = Number.isFinite(opts.max_output_tokens) ? opts.max_output_tokens : T.max_output_tokens;
+  const prompt = opts.prompt || buildPrompt(c, places, feedback, history);
   const started = Date.now();
   const errors = [], routeTrace = [];
   const down = (route) => {
@@ -844,7 +1017,7 @@ export async function gemma(c, places, feedback, history, opts = {}) {
       }
       const left = deadline - Date.now();
       if (left < T.min_attempt_ms) {
-        routeTrace.push({ stage: "budget_exhausted", ok: false, elapsed_ms: Date.now() - started, reason: `only ${left}ms left of the ${T.gen_budget_ms}ms generation budget` });
+        routeTrace.push({ stage: "budget_exhausted", ok: false, elapsed_ms: Date.now() - started, reason: `only ${left}ms left of the ${budgetMs}ms generation budget` });
         const err = new Error(`${errors.join("; ")}; generation budget exhausted after ${Date.now() - started}ms`.replace(/^; /, ""));
         err.routeTrace = routeTrace;
         throw err;
@@ -853,7 +1026,7 @@ export async function gemma(c, places, feedback, history, opts = {}) {
       const t1 = Date.now();
       let out;
       try {
-        out = await call(route, model, prompt, attemptSignal(outer, capMs));
+        out = await call(route, model, prompt, attemptSignal(outer, capMs), { max_output_tokens: maxOutputTokens });
       } catch (e) {
         const timeout = isTimeout(e);
         const status = (e && e.status) || 0;
@@ -985,6 +1158,148 @@ function logQuest(doc) {
 // In-process ring of the last quests, drives duplicate and variety gates.
 const recent = [];
 
+// ---------------------------------------------------------------------------
+// Generation loop. Two attempts, never more:
+//   attempt 1  a full Gemma generation, bounded by TIMING.gen_budget_ms
+//   attempt 2  the single response to a gate rejection, bounded by the much
+//              tighter TIMING.regen_budget_ms - a field repair when the miss
+//              is one weak field, otherwise one short full regeneration
+// If attempt 2 cannot start inside its budget, the curated fallback is served
+// immediately with the rejection still in the trace. That is the whole point:
+// a first attempt that passes the model but fails the quality gate must never
+// stack a second long wait on top of itself, so a request can no longer reach
+// the old ~30s. Every gate decision is pushed onto `trace`, so the honest
+// pipeline (generated -> rejected -> repaired/regenerated -> fallback) stays
+// visible either way.
+// opts (tests inject fakes): gemma, routes, timings, now, trace.
+// ---------------------------------------------------------------------------
+export async function generateQuest(c, places, history = [], opts = {}) {
+  const timings = opts.timings || TIMING;
+  const gemmaFn = opts.gemma || gemma;
+  const routes = opts.routes || ROUTES;
+  const clock = opts.now || Date.now;
+  const trace = opts.trace || [];
+  const health = opts.health || routeHealth;
+  const out = { quest: null, source: null, served: null, failReason: "", trace };
+
+  // Fast path: if every configured route is already inside its cooldown, say so
+  // up front. gemma() then only emits route_skip entries, so the request costs
+  // a few milliseconds instead of a provider timeout.
+  const anyHealthy = routes.some((r) => !routeState(r, clock(), health));
+  if (!anyHealthy && routes.length) {
+    out.failReason = "circuit-open";
+    trace.push({ stage: "circuit_check", ok: false, reason: "all routes unhealthy", note: "fast fallback to avoid waiting for provider timeouts" });
+  }
+
+  const genDeadline = clock() + timings.gen_budget_ms;
+  let feedback = "", pendingRaw = null, pendingFields = null, pendingReason = "";
+
+  for (let attempt = 1; attempt <= 2 && !out.quest; attempt++) {
+    const repair = attempt === 2 && !!pendingFields;
+    const stage = attempt === 1 ? "gemma_generate" : repair ? "gemma_repair" : "gemma_regenerate";
+    const deadline = attemptDeadline({ now: clock(), attempt, genDeadline, timings });
+    const floor = attempt === 1 ? timings.min_attempt_ms : timings.min_regenerate_ms;
+    const left = deadline - clock();
+    if (left < floor) {
+      if (!out.failReason) out.failReason = attempt === 1 ? "generation-timeout" : "regeneration-timeout";
+      trace.push({
+        stage: attempt === 1 ? "budget_exhausted" : "regen_budget_exhausted",
+        attempt, ok: false,
+        reason: `${left}ms left of the ${attempt === 1 ? timings.gen_budget_ms : timings.regen_budget_ms}ms ${attempt === 1 ? "generation" : "regeneration"} budget`,
+        ...(repair ? { repair: pendingFields.join(",") } : {}),
+        note: "curated fallback served immediately instead of waiting",
+      });
+      break;
+    }
+
+    let out1;
+    try {
+      out1 = await gemmaFn(c, places, feedback, history, {
+        routes,
+        health,
+        deadline,
+        timings,
+        budget_ms: attempt === 1 ? timings.gen_budget_ms : timings.regen_budget_ms,
+        ...(repair ? { prompt: buildRepairPrompt(c, pendingRaw, pendingFields, pendingReason, places), max_output_tokens: timings.repair_output_tokens } : {}),
+      });
+    } catch (e) {
+      const rt = e.routeTrace || [];
+      for (const a of rt) trace.push(a);
+      // Nothing was attempted: every route was skipped by an open circuit, so
+      // the skips are the whole story. A generation-failure stage here would
+      // bury the real reason and label an immediate fallback as a timeout.
+      if (rt.length && rt.every((a) => a.stage === "route_skip")) {
+        out.failReason = "circuit-open";
+      } else {
+        // A budget or timeout failure on attempt 2 is a REGENERATION timeout:
+        // labelling it "generation-timeout" would hide that a second attempt
+        // was made and burned its short budget.
+        out.failReason = /budget|timeout/i.test(String(e.message || ""))
+          ? (attempt === 1 ? "generation-timeout" : "regeneration-timeout")
+          : "no-free-gemma-route";
+        trace.push({ stage, attempt, ...(repair ? { repair: pendingFields.join(",") } : {}), ok: false, error: redact(e), elapsed_ms: clock() });
+      }
+      break;
+    }
+    for (const a of out1.routeTrace) trace.push(a);
+    trace.push({ stage, attempt, provider: out1.provider, endpoint: out1.endpoint, model: out1.model, ok: true, latency_ms: out1.latency_ms, ...(repair ? { repair: pendingFields.join(",") } : {}) });
+
+    // A repair is merged into the raw attempt that produced it, then every
+    // gate - safety first - runs again on the merged object. The safety gate
+    // is never relaxed for the repair path.
+    const candidate = repair ? { ...pendingRaw, ...out1.raw } : out1.raw;
+    const s = safety(candidate, c);
+    if (!s.ok) {
+      trace.push({ stage: "safety", attempt, ok: false, reason: s.reason, raw: JSON.stringify(candidate).slice(0, 160) });
+      feedback = `schema/safety gate rejected it: ${s.reason}. Fix that field and answer again with the same format.`;
+      continue;
+    }
+    trace.push({ stage: "safety", attempt, ok: true });
+
+    // The discovered place only reaches the player if Gemma selected one that
+    // survives grounding, safety and player-fit checks. A rejected selection
+    // gets the one short repair; a kept one (or none) is what the UI shows.
+    const lg = locationGate(s.quest, c, places);
+    const locRepair = lg.ok ? null : repairFields(lg.reason);
+    trace.push(lg.ok
+      ? { stage: "location", attempt, ok: true, place: lg.location ? lg.location.name : null, ...(lg.inferred ? { inferred: true } : {}), ...(lg.location && lg.location.map_url ? { map: "google-maps" } : {}), ...(lg.location ? { via: lg.location.via } : {}) }
+      : { stage: "location", attempt, ok: false, reason: lg.reason, place: lg.place, repair: locRepair ? locRepair.join(",") : null });
+    if (!lg.ok) {
+      feedback = locationFeedback(lg.reason);
+      pendingRaw = candidate; pendingFields = locRepair; pendingReason = lg.reason;
+      continue;
+    }
+    s.quest.location = lg.location;
+
+    // Rejected quests are recorded (title + hook only) so a fallback can be
+    // diagnosed from the stored trace instead of by re-running the request.
+    const seen = { title: s.quest.title, hook: s.quest.hook };
+    const bad = quality(s.quest, c, history, places);
+    if (bad) {
+      const qRepair = repairFields(bad);
+      trace.push({ stage: "quality", attempt, ok: false, reason: bad, repair: qRepair ? qRepair.join(",") : null, ...seen });
+      feedback = gateFeedback(bad);
+      pendingRaw = candidate; pendingFields = qRepair; pendingReason = bad;
+      continue;
+    }
+    trace.push({ stage: "quality", attempt, ok: true });
+
+    const f = fit(s.quest, c);
+    if (f) {
+      trace.push({ stage: "personalization", attempt, ok: false, reason: f, repair: null, ...seen });
+      feedback = `personalization gate rejected it: ${f}. The player profile in the prompt is not decoration - match it exactly.`;
+      pendingRaw = candidate; pendingFields = repairFields(f); pendingReason = f;
+      continue;
+    }
+    trace.push({ stage: "personalization", attempt, ok: true });
+
+    out.quest = s.quest;
+    out.source = out1.model;
+    out.served = { provider: out1.provider, endpoint: out1.endpoint };
+  }
+  return out;
+}
+
 app.get("/health", (_q, s) => s.json({
   ok: true,
   routes: ROUTES.map((r) => {
@@ -1000,7 +1315,7 @@ app.post("/api/quest", async (req, res) => {
   const c = validate(req.body);
   if (!c) return res.status(400).json({ error: "invalid input" });
   const t0 = Date.now();
-  let quest = null, source = "curated-fallback", feedback = "", served = null, failReason = "";
+  let quest = null, source = "curated-fallback", served = null, failReason = "";
   const trace = [{ stage: "state_extraction", ok: true, mood: c.state, energy: c.energy, minutes: maxMinutes(c), budget: c.budget, social: c.social, chaos: c.chaos, city: c.city || null }];
 
   let places = [];
@@ -1015,89 +1330,14 @@ app.post("/api/quest", async (req, res) => {
     trace.push({ stage: "discovery", provider: "serpapi", ok: false, skipped: process.env.SERPAPI_KEY ? "no city provided" : "SERPAPI_KEY missing", note: "fallback: location-independent quest" });
   }
 
-  // Fast path: if every configured route is already inside its cooldown, say so
-  // up front. gemma() then only emits route_skip entries, so the request costs
-  // a few milliseconds instead of a provider timeout.
-  const routesCfg = ROUTES || [];
-  const anyHealthy = routesCfg.some((r) => !routeState(r));
-  if (!anyHealthy && routesCfg.length) {
-    failReason = "circuit-open";
-    trace.push({ stage: "circuit_check", ok: false, reason: "all routes unhealthy", note: "fast fallback to avoid waiting for provider timeouts" });
-  }
-  // One deadline governs every generation attempt, including regenerations.
-  const deadline = Date.now() + TIMING.gen_budget_ms;
-  for (let attempt = 1; attempt <= 3 && !quest; attempt++) {
-    const stage = attempt === 1 ? "gemma_generate" : "gemma_regenerate";
-    const left = deadline - Date.now();
-    if (left < TIMING.min_regenerate_ms) {
-      failReason = "generation-timeout";
-      trace.push({ stage: "budget_exhausted", attempt, ok: false, reason: `${TIMING.gen_budget_ms}ms generation budget spent, ${left}ms left`, note: "no time for another attempt" });
-      break;
-    }
-    let out;
-    try {
-      out = await gemma(c, places, feedback, recent, { deadline });
-    } catch (e) {
-      const rt = e.routeTrace || [];
-      for (const a of rt) trace.push(a);
-      // Nothing was attempted: every route was skipped by an open circuit, so
-      // the skips are the whole story. A generation-failure stage here would
-      // bury the real reason and label an immediate fallback as a timeout.
-      if (rt.length && rt.every((a) => a.stage === "route_skip")) {
-        failReason = "circuit-open";
-      } else {
-        failReason = /budget|timeout/i.test(String(e.message || "")) ? "generation-timeout" : "no-free-gemma-route";
-        trace.push({ stage, attempt, ok: false, error: redact(e), elapsed_ms: Date.now() - t0 });
-      }
-      break;
-    }
-    for (const a of out.routeTrace) trace.push(a);
-    trace.push({ stage, attempt, provider: out.provider, endpoint: out.endpoint, model: out.model, ok: true, latency_ms: out.latency_ms });
+  // Two bounded attempts (initial generation, then one short repair or
+  // regeneration), then straight to the curated fallback. See generateQuest.
+  const gen = await generateQuest(c, places, recent, { trace });
+  quest = gen.quest;
+  source = gen.source || "curated-fallback";
+  served = gen.served;
+  failReason = gen.failReason;
 
-    const s = safety(out.raw, c);
-    if (!s.ok) {
-      trace.push({ stage: "safety", attempt, ok: false, reason: s.reason, raw: JSON.stringify(out.raw).slice(0, 160) });
-      feedback = `schema/safety gate rejected it: ${s.reason}. Fix that field and answer again with the same format.`;
-      continue;
-    }
-    trace.push({ stage: "safety", attempt, ok: true });
-
-    // The discovered place only reaches the player if Gemma selected one that
-    // survives grounding, safety and player-fit checks. A rejected selection
-    // regenerates; a kept one (or none) is what the UI will show.
-    const lg = locationGate(s.quest, c, places);
-    trace.push(lg.ok
-      ? { stage: "location", attempt, ok: true, place: lg.location ? lg.location.name : null, ...(lg.inferred ? { inferred: true } : {}), ...(lg.location && lg.location.map_url ? { map: "google-maps" } : {}) }
-      : { stage: "location", attempt, ok: false, reason: lg.reason, place: lg.place });
-    if (!lg.ok) {
-      feedback = locationFeedback(lg.reason);
-      continue;
-    }
-    s.quest.location = lg.location;
-
-    // Rejected quests are recorded (title + hook only) so a fallback can be
-    // diagnosed from the stored trace instead of by re-running the request.
-    const seen = { title: s.quest.title, hook: s.quest.hook };
-    const bad = quality(s.quest, c, recent, places);
-    if (bad) {
-      trace.push({ stage: "quality", attempt, ok: false, reason: bad, ...seen });
-      feedback = gateFeedback(bad);
-      continue;
-    }
-    trace.push({ stage: "quality", attempt, ok: true });
-
-    const f = fit(s.quest, c);
-    if (f) {
-      trace.push({ stage: "personalization", attempt, ok: false, reason: f, ...seen });
-      feedback = `personalization gate rejected it: ${f}. The player profile in the prompt is not decoration - match it exactly.`;
-      continue;
-    }
-    trace.push({ stage: "personalization", attempt, ok: true });
-
-    quest = s.quest;
-    source = out.model;
-    served = { provider: out.provider, endpoint: out.endpoint };
-  }
 
   if (!quest) {
     // The curated fallback must still clear the gates; if the chosen outing

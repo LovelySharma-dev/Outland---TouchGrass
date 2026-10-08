@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert";
+import vm from "node:vm";
 import { readFileSync } from "node:fs";
-import { validate, safety, quality, fit, maxMinutes, redact, gemma, TIMING, freeOpenRouterModels, freeGoogleModels, curated, gentle, locationGate, curatedLocation } from "./server.js";
+import { validate, safety, quality, fit, maxMinutes, redact, gemma, TIMING, attemptDeadline, repairFields, buildRepairPrompt, generateQuest, routeState, resetRouteHealth, freeOpenRouterModels, freeGoogleModels, curated, gentle, locationGate, curatedLocation } from "./server.js";
 
 const c = { state: "surprise", energy: 30, budget: 0, social: "solo", chaos: 3, city: "", excuse: "", minutes: 0 };
 
@@ -97,6 +98,16 @@ test("safety rejects rail tracks", () => {
   const r = unsafe(["Walk along the train tracks to count the sleepers."]);
   assert.equal(r.ok, false);
   assert.match(r.reason, /rail-tracks/);
+});
+test("safety rejects restricted areas", () => {
+  const r = unsafe(["Slip past the restricted area sign to reach the old platform."]);
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /restricted-area/);
+});
+test("safety rejects abandoned places", () => {
+  const r = unsafe(["Wait inside the abandoned shelter until the rain stops."]);
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /restricted-area/);
 });
 test("safety rejects dangerous verb+noun proximity", () => {
   const r = unsafe(["Move the metal cover off the drain to see what is underneath it."]);
@@ -197,13 +208,18 @@ test("paid model ids can never reach a provider", () => {
 });
 
 // --- latency contract -------------------------------------------------------
-test("latency ceilings stay far below the old 150s ceiling", () => {
-  assert.ok(TIMING.discovery_ms <= 6000, "discovery bounded");
-  assert.ok(TIMING.primary_attempt_ms <= 8000, "primary route fails fast");
-  assert.ok(TIMING.fallback_attempt_ms <= 20000, "fallback bounded");
-  assert.ok(TIMING.gen_budget_ms <= 30000, "generation budget bounded");
-  assert.ok(TIMING.discovery_ms + TIMING.gen_budget_ms < 40000, "worst case request under 40s");
+test("latency ceilings keep the worst case under 15s", () => {
+  assert.ok(TIMING.discovery_ms <= 4000, "discovery bounded");
+  assert.ok(TIMING.primary_attempt_ms <= 7000, "primary route fails fast");
+  assert.ok(TIMING.fallback_attempt_ms <= 9000, "fallback bounded");
+  assert.ok(TIMING.gen_budget_ms <= 10000, "generation budget bounded");
+  assert.ok(TIMING.regen_budget_ms <= 5000, "regeneration budget is much tighter than generation");
+  assert.ok(TIMING.regen_budget_ms < TIMING.gen_budget_ms, "a rejection can never cost as much as a first attempt");
+  assert.ok(TIMING.discovery_ms + TIMING.gen_budget_ms <= 14000, "worst case request under 15s");
   assert.ok(TIMING.max_output_tokens > 0 && TIMING.max_output_tokens <= 1500, "output bounded");
+  assert.ok(TIMING.repair_output_tokens < TIMING.max_output_tokens, "a field repair asks for less text than a full quest");
+  assert.ok(TIMING.min_regenerate_ms <= TIMING.regen_budget_ms, "a regeneration is only started when it can finish");
+  assert.ok(TIMING.min_attempt_ms <= TIMING.gen_budget_ms, "a first attempt is only started when it can finish");
 });
 
 // --- routing: primary available / unavailable -> fallback -------------------
@@ -315,7 +331,10 @@ test("routing: the next request skips a timed-out provider instead of waiting ag
   await assert.rejects(gemma(c, [], "", [], opts), /timeout after/);
   assert.equal(calls.length, 1, "first request pays the attempt");
   const open = health.get(goKey);
-  assert.ok(open && open.until - Date.now() >= TIMING.cooldown_error_ms, "the cooldown must outlive the attempt that opened it");
+  // 100ms of slack for the clock ticks between openCircuit() and this assert;
+  // the guarantee that matters is that the cooldown still dwarfs the attempt
+  // cap (9s) that produced it.
+  assert.ok(open && open.until - Date.now() >= TIMING.cooldown_error_ms - 100, "the cooldown must outlive the attempt that opened it");
   assert.equal(open.fails, 1);
 
   const t0 = Date.now();
@@ -352,7 +371,7 @@ test("routing: repeated failures widen the cooldown, a success clears it", async
 test("routing: every circuit open means skips only, so the caller can label it circuit-open", async () => {
   const health = new Map([
     ["openrouter:openrouter.ai", { until: Date.now() + 30000, reason: "http 429 rate limited", fails: 1 }],
-    [goKey, { until: Date.now() + 30000, reason: "timeout after 16000ms", fails: 2 }],
+    [goKey, { until: Date.now() + 30000, reason: "timeout after 9000ms", fails: 2 }],
   ]);
   const calls = [];
   await assert.rejects(
@@ -590,4 +609,375 @@ test("curated fallback: no misleading SerpApi attribution", () => {
   // Unsafe or unfitting places stay out of curated quests too.
   const unsafeCurated = { ...q, objective: "Explore Abandoned Factory Lane." };
   assert.equal(curatedLocation(unsafeCurated, places, c), null);
+});
+
+// --- field repair helpers ---------------------------------------------------
+test("repairFields returns the correct single field for generic-hook", () => {
+  assert.deepEqual(repairFields("generic-hook"), ["hook"]);
+});
+
+test("repairFields looks at the reason head for location reasons", () => {
+  assert.deepEqual(repairFields("location:unverified-place"), ["location"]);
+  assert.deepEqual(repairFields("location:paid-on-zero-budget"), ["location"]);
+  assert.deepEqual(repairFields("location:energy-mismatch"), ["location"]);
+  assert.deepEqual(repairFields("location:over-time:90>40"), ["location"]);
+});
+
+test("repairFields returns null for a reason it does not know how to patch", () => {
+  assert.equal(repairFields("duplicate-quest"), null);
+  assert.equal(repairFields("near-duplicate-objective"), null);
+  assert.equal(repairFields("location:unsafe:climbing"), null);
+});
+
+// --- attemptDeadline: regeneration never exceeds regen_budget_ms -------------
+test("attemptDeadline keeps regeneration to the regeneration budget", () => {
+  const now = 10000;
+  const genDeadline = now + 60000; // generation budget is no constraint at all here
+  const d = attemptDeadline({ now, attempt: 2, genDeadline, timings: TIMING });
+  assert.equal(d, now + TIMING.regen_budget_ms);
+});
+
+test("attemptDeadline returns genDeadline for the first attempt", () => {
+  const now = 100;
+  const genDeadline = now + 5000;
+  assert.equal(attemptDeadline({ now, attempt: 1, genDeadline }), genDeadline);
+});
+
+test("attemptDeadline respects that genDeadline may already be tighter", () => {
+  const now = 10000;
+  const genDeadline = now + 2000; // only 2s left of whole budget
+  const d = attemptDeadline({ now, attempt: 2, genDeadline, timings: TIMING });
+  assert.equal(d, genDeadline);
+});
+
+// --- generateQuest: field repair is capped by regen_budget_ms ----------------
+test("generateQuest uses a field repair for a generic-hook rejection and is capped by regen_budget_ms", async () => {
+  resetRouteHealth();
+  const calls = [];
+  const questProto = quest({ hook: 'short hook', location: null });
+  let repaired = false;
+  const gemmaFake = async (_c, _places, feedback, _history, opts) => {
+    calls.push({ feedback, max_output_tokens: opts.max_output_tokens, prompt: opts.prompt || "", budget_ms: opts.budget_ms });
+    if (!repaired) {
+      repaired = true;
+      return {
+        raw: questProto,
+        model: "gemma-4-26b-a4b-it",
+        provider: "google-generative-ai",
+        endpoint: "generativelanguage.googleapis.com",
+        latency_ms: 50,
+        routeTrace: [{ stage: "route_attempt", provider: "google-generative-ai", ok: true }],
+      };
+    }
+    // The repair must only override hook
+    return {
+      raw: { ...questProto, hook: "The oldest bench on this street has a number nobody can read." },
+      model: "gemma-4-26b-a4b-it",
+      provider: "google-generative-ai",
+      endpoint: "generativelanguage.googleapis.com",
+      latency_ms: 40,
+      routeTrace: [{ stage: "route_attempt", provider: "google-generative-ai", ok: true }],
+    };
+  };
+
+  const out = await generateQuest(c, [], [], {
+    gemma: gemmaFake,
+    routes: [routeGo],
+    timings: { ...TIMING, min_attempt_ms: 10, min_regenerate_ms: 10 },
+    now: () => 0,
+  });
+
+  assert.ok(out.quest, "quest must pass after a hook repair");
+  assert.equal(out.quest.hook, "The oldest bench on this street has a number nobody can read.");
+  assert.equal(out.failReason, "");
+  assert.equal(calls.length, 2, "one generation, one repair");
+  assert.equal(calls[0].budget_ms, TIMING.gen_budget_ms);
+  assert.equal(calls[1].budget_ms, TIMING.regen_budget_ms);
+  assert.equal(calls[1].max_output_tokens, TIMING.repair_output_tokens, "repair uses the much smaller token cap");
+  assert.ok(calls[1].prompt.includes("FIX ONLY THESE FIELD"), "the repair prompt is the single-field repair prompt");
+  const stages = out.trace.map((t) => t.stage);
+  assert.ok(stages.includes("gemma_generate"));
+  assert.ok(stages.includes("gemma_repair"));
+  assert.ok(stages.includes("quality"));
+  assert.ok(stages.includes("personalization"));
+  assert.ok(!stages.includes("gemma_regenerate"), "no full regeneration should have happened");
+});
+
+// --- regeneration: a gate rejection gets a strict, short deadline ------------
+// The production failure this locks down: a real Gemma answer was rejected by
+// the safety gate (unsafe:restricted-area), regeneration then burned ~15.8s
+// and the request took ~30.3s before the curated fallback. A regeneration is
+// now bounded by regen_budget_ms (and by the generation deadline, whichever
+// is sooner), never by the leftovers of the generation budget.
+
+test("generateQuest: unsafe Gemma output gets a regeneration capped by regen_budget_ms", async () => {
+  resetRouteHealth();
+  const calls = [];
+  let wall = 100000;
+  const gemmaFake = async (_c, _places, _feedback, _history, opts) => {
+    calls.push({ deadline: opts.deadline, budget_ms: opts.budget_ms, at: wall });
+    if (calls.length === 1) {
+      wall += 3000; // the unsafe first attempt burns 3s of the generation budget
+      return {
+        raw: quest({ steps: ["Slip past the restricted area sign to reach the old platform.", "Find one strange window and photograph its frame."] }),
+        model: "m", provider: "google-generative-ai", endpoint: "e",
+        latency_ms: 3000,
+        routeTrace: [{ stage: "route_attempt", provider: "google-generative-ai", ok: true }],
+      };
+    }
+    return {
+      raw: quest(),
+      model: "m", provider: "google-generative-ai", endpoint: "e",
+      latency_ms: 500,
+      routeTrace: [{ stage: "route_attempt", provider: "google-generative-ai", ok: true }],
+    };
+  };
+
+  const out = await generateQuest(c, [], [], { gemma: gemmaFake, routes: [routeGo], now: () => wall, trace: [] });
+
+  assert.equal(calls.length, 2, "a safety rejection gets exactly one regeneration");
+  const safetyFail = out.trace.find((t) => t.stage === "safety" && t.ok === false);
+  assert.equal(safetyFail.reason, "unsafe:restricted-area", "the real production rejection stays visible");
+  assert.equal(safetyFail.attempt, 1);
+  assert.ok(out.trace.some((t) => t.stage === "gemma_regenerate" && t.ok === true), "the regeneration is traced");
+  // Attempt 1 starts at 100000 with the whole generation budget; the
+  // regeneration starts at 103000 with 7000ms of generation budget still
+  // left - and must still only get regen_budget_ms.
+  assert.equal(calls[0].deadline, 100000 + TIMING.gen_budget_ms, "attempt 1 gets the whole generation budget");
+  assert.equal(calls[1].budget_ms, TIMING.regen_budget_ms, "attempt 2 is labelled with the regeneration budget");
+  assert.equal(calls[1].deadline, 103000 + TIMING.regen_budget_ms, "attempt 2 gets regen_budget_ms from now, never the leftovers of gen budget");
+  assert.ok(calls[1].deadline < calls[0].deadline, "the regeneration deadline is strictly earlier than attempt 1's");
+  assert.ok(out.quest, "the regenerated quest is served");
+  assert.equal(out.failReason, "");
+  assert.equal(out.served.provider, "google-generative-ai");
+});
+
+test("generateQuest: a quality rejection gets the same strict regeneration deadline", async () => {
+  resetRouteHealth();
+  const calls = [];
+  let wall = 200000;
+  const gemmaFake = async (_c, _places, _feedback, _history, opts) => {
+    calls.push({ deadline: opts.deadline, budget_ms: opts.budget_ms, prompt: opts.prompt || "", at: wall });
+    if (calls.length === 1) {
+      wall += 4000;
+      return {
+        raw: quest(),
+        model: "m", provider: "google-generative-ai", endpoint: "e",
+        latency_ms: 4000,
+        routeTrace: [{ stage: "route_attempt", provider: "google-generative-ai", ok: true }],
+      };
+    }
+    return {
+      raw: quest({ title: "THE OLDEST DOOR NUMBER" }),
+      model: "m", provider: "google-generative-ai", endpoint: "e",
+      latency_ms: 500,
+      routeTrace: [{ stage: "route_attempt", provider: "google-generative-ai", ok: true }],
+    };
+  };
+  const history = [{ title: "THE SILENT LIBRARY OF SHADOWS", category: "MYSTERY" }];
+
+  const out = await generateQuest(c, [], history, { gemma: gemmaFake, routes: [routeGo], now: () => wall, trace: [] });
+
+  assert.equal(calls.length, 2, "a quality rejection gets exactly one regeneration");
+  const qFail = out.trace.find((t) => t.stage === "quality" && t.ok === false);
+  assert.equal(qFail.reason, "duplicate-quest", "the quality rejection stays visible");
+  assert.ok(out.trace.some((t) => t.stage === "gemma_regenerate"), "duplicate-quest cannot be patched, it is a full regeneration");
+  // At the regeneration call the wall clock is 204000, so 6000ms of the
+  // generation budget would still be available - the deadline must not use it.
+  assert.equal(calls[1].deadline, 204000 + TIMING.regen_budget_ms, "regeneration is capped at regen_budget_ms even with gen budget left");
+  assert.equal(calls[1].budget_ms, TIMING.regen_budget_ms);
+  assert.ok(calls[1].deadline < calls[0].deadline, "the regeneration deadline is strictly earlier than attempt 1's");
+  assert.equal(calls[1].prompt, "", "a full regeneration uses the full prompt, not the field-repair prompt");
+  assert.ok(out.quest, "the regenerated quest is served");
+  assert.equal(out.quest.title, "THE OLDEST DOOR NUMBER");
+  assert.equal(out.failReason, "");
+});
+
+test("generateQuest: regeneration timeout falls back immediately with an honest trace", async () => {
+  resetRouteHealth();
+  const calls = [];
+  let wall = 300000;
+  const gemmaFake = async (_c, _places, _feedback, _history, opts) => {
+    calls.push({ deadline: opts.deadline, budget_ms: opts.budget_ms, at: wall });
+    if (calls.length === 1) {
+      wall += 3500;
+      return {
+        raw: quest({ steps: ["Slip past the restricted area sign to reach the old platform.", "Find one strange window and photograph its frame."] }),
+        model: "m", provider: "google-generative-ai", endpoint: "e",
+        latency_ms: 3500,
+        routeTrace: [{ stage: "route_attempt", provider: "google-generative-ai", ok: true }],
+      };
+    }
+    // The regeneration burns its whole short budget at the provider.
+    wall += TIMING.regen_budget_ms;
+    const err = new Error("google/gemma-4-26b-a4b-it: timeout after 5000ms; generation budget exhausted after 5000ms");
+    err.routeTrace = [{ stage: "budget_exhausted", ok: false, reason: "only 0ms left of the 5000ms regeneration budget" }];
+    throw err;
+  };
+
+  const out = await generateQuest(c, [], [], { gemma: gemmaFake, routes: [routeGo], now: () => wall, trace: [] });
+
+  assert.equal(calls.length, 2, "exactly one regeneration attempt, then stop");
+  assert.equal(calls[1].budget_ms, TIMING.regen_budget_ms);
+  assert.equal(calls[1].deadline, 303500 + TIMING.regen_budget_ms, "the regeneration could never have waited longer than regen_budget_ms");
+  assert.equal(out.quest, null, "no generation is served");
+  assert.equal(out.served, null, "the fallback is never relabelled as gemma");
+  assert.equal(out.failReason, "regeneration-timeout", "the failure is labelled as a regeneration timeout, not hidden");
+  const stages = out.trace.map((t) => t.stage);
+  assert.ok(stages.includes("gemma_generate"), "the first attempt is traced");
+  const safetyFail = out.trace.find((t) => t.stage === "safety" && t.ok === false);
+  assert.ok(safetyFail, "the safety rejection stays in the trace");
+  assert.ok(stages.includes("budget_exhausted"), "the regeneration budget exhaustion stays in the trace");
+  const regenFail = out.trace.find((t) => t.stage === "gemma_regenerate" && t.ok === false);
+  assert.ok(regenFail, "the failed regeneration is visible, not hidden");
+  assert.ok(!out.trace.some((t) => t.stage === "gemma_regenerate" && t.ok === true), "nothing pretends the regeneration succeeded");
+});
+
+test("generateQuest: open circuits mean an immediate curated fallback, no provider wait", async () => {
+  const health = new Map([
+    ["openrouter:openrouter.ai", { until: Date.now() + 30000, reason: "http 429 rate limited", fails: 1 }],
+    [goKey, { until: Date.now() + 30000, reason: "timeout after 9000ms", fails: 2 }],
+  ]);
+  const t0 = Date.now();
+  const out = await generateQuest(c, [], [], { routes: [routeOr, routeGo], health, trace: [] });
+  const ms = Date.now() - t0;
+  assert.ok(ms < 1000, `open circuits must fall back near-instantly, took ${ms}ms`);
+  assert.equal(out.quest, null);
+  assert.equal(out.served, null);
+  assert.equal(out.failReason, "circuit-open");
+  const stages = out.trace.map((t) => t.stage);
+  assert.ok(stages.includes("circuit_check"), "the fast path is visible");
+  assert.ok(stages.includes("route_skip"), "the skipped providers are visible");
+  assert.ok(!stages.includes("gemma_generate"), "nothing was generated");
+});
+
+test("generateQuest: a healthy Gemma attempt is still served as gemma", async () => {
+  resetRouteHealth();
+  let calls = 0;
+  const gemmaFake = async () => {
+    calls += 1;
+    return {
+      raw: quest(),
+      model: "gemma-4-26b-a4b-it",
+      provider: "google-generative-ai",
+      endpoint: "generativelanguage.googleapis.com",
+      latency_ms: 600,
+      routeTrace: [{ stage: "route_attempt", provider: "google-generative-ai", ok: true }],
+    };
+  };
+  const out = await generateQuest(c, [], [], { gemma: gemmaFake, routes: [routeGo], trace: [] });
+
+  assert.equal(calls, 1, "one attempt is enough");
+  assert.ok(out.quest, "the quest is served");
+  assert.equal(out.source, "gemma-4-26b-a4b-it");
+  assert.equal(out.served.provider, "google-generative-ai");
+  assert.equal(out.failReason, "");
+  const stages = out.trace.map((t) => t.stage);
+  for (const s of ["gemma_generate", "safety", "location", "quality", "personalization"]) {
+    assert.ok(stages.includes(s), `${s} stage traced`);
+  }
+  assert.equal(out.trace.find((t) => t.stage === "safety").ok, true);
+  assert.ok(!stages.includes("gemma_regenerate"), "no regeneration was needed");
+});
+
+test("generateQuest: the safety gate stays just as strict on the regeneration", async () => {
+  resetRouteHealth();
+  let calls = 0;
+  const gemmaFake = async () => {
+    calls += 1;
+    const steps = calls === 1
+      ? ["Slip past the restricted area sign to reach the old platform.", "Find one strange window and photograph its frame."]
+      : ["Climb the fence behind the depot for a better view of the yard.", "Notice one shadow and sketch its shape."];
+    return {
+      raw: quest({ steps }),
+      model: "m", provider: "google-generative-ai", endpoint: "e",
+      latency_ms: 100,
+      routeTrace: [{ stage: "route_attempt", provider: "google-generative-ai", ok: true }],
+    };
+  };
+
+  const out = await generateQuest(c, [], [], { gemma: gemmaFake, routes: [routeGo], trace: [] });
+
+  assert.equal(calls, 2, "the regeneration was attempted");
+  const fails = out.trace.filter((t) => t.stage === "safety" && t.ok === false);
+  assert.equal(fails.length, 2, "both unsafe outputs were rejected");
+  assert.equal(fails[0].reason, "unsafe:restricted-area");
+  assert.equal(fails[1].reason, "unsafe:climbing", "the regeneration is scanned with the same unchanged rules");
+  assert.equal(out.quest, null, "an unsafe regeneration is never served");
+  assert.equal(out.served, null, "and it is never relabelled as a success");
+});
+
+test("regeneration: a live provider attempt can never outlive its deadline", async () => {
+  const health = new Map();
+  const deadline = Date.now() + 400;
+  const t0 = Date.now();
+  await assert.rejects(
+    gemma(c, [], "", [], {
+      routes: [routeGo],
+      health,
+      timings: { ...TIMING, min_attempt_ms: 100 },
+      deadline,
+      budget_ms: TIMING.regen_budget_ms,
+      call: (_r, _m, _p, signal) => new Promise((_res, rej) => signal.addEventListener("abort", () => rej(signal.reason), { once: true })),
+    }),
+    (e) => {
+      assert.ok(e.routeTrace.some((t) => t.stage === "route_attempt" && t.ok === false), "the cut-off attempt is traced");
+      assert.match(e.message, /timeout|budget/i);
+      return true;
+    },
+  );
+  const ms = Date.now() - t0;
+  assert.ok(ms >= 350, "it waited for its own deadline instead of failing instantly");
+  assert.ok(ms < 1000, `a regeneration attempt must be cut off at its deadline, took ${ms}ms`);
+});
+
+// --- generateQuest: regen budget exhausted -> curated fallback immediately ---
+test("generateQuest serves curated fallback immediately when regeneration budget cannot be met", async () => {
+  resetRouteHealth();
+  let first = true;
+  const c = { state: "surprise", energy: 30, budget: 0, social: "solo", chaos: 3, city: "", excuse: "", minutes: 0 };
+  const q = (o = {}) => ({
+    title: "X".repeat(20),
+    hook: "Y".repeat(20),
+    objective: "Z".repeat(20),
+    steps: ["A".repeat(15), "B".repeat(15), "C".repeat(15)],
+    duration_minutes: 25,
+    budget: 0,
+    difficulty: "easy",
+    xp: 55,
+    category: "OBSERVER",
+    done_when: "D".repeat(20),
+    ...o,
+  });
+  const routeGo = { kind: "google", provider: "google-generative-ai", host: "generativelanguage.googleapis.com", key: "k", models: ["gemma-4-26b-a4b-it"] };
+  const gemmaFake = async () => {
+    if (first) {
+      first = false;
+      return {
+        raw: q({
+          title: "THE SILENT LIBRARY OF SHADOWS",
+          hook: "The oldest bench on this street has a number nobody can read.",
+          objective: "Find one overlooked detail and document it.",
+        }),
+        model: "m",
+        provider: "google-generative-ai",
+        endpoint: "e",
+        latency_ms: 50,
+        routeTrace: [{ stage: "route_attempt", provider: "google-generative-ai", ok: true }],
+      };
+    }
+    throw new Error("should not be called when budget exhausted");
+  };
+  const history = [{ title: "THE SILENT LIBRARY OF SHADOWS", category: "OBSERVER" }];
+  const out = await generateQuest(c, [], history, {
+    gemma: gemmaFake,
+    routes: [routeGo],
+    timings: { ...TIMING, min_attempt_ms: 10, min_regenerate_ms: TIMING.regen_budget_ms + 1000 },
+    now: () => 10000,
+    trace: [],
+  });
+  const traceStages = out.trace.map((t) => t.stage);
+  assert.ok(traceStages.includes("quality"), "quality rejection was recorded");
+  assert.ok(traceStages.includes("regen_budget_exhausted") || traceStages.includes("budget_exhausted"), "a budget-exhaustion stage was recorded");
+  assert.ok(!out.quest, "quest was not produced from generation");
 });

@@ -1,2 +1,9 @@
 .env
 node_modules
+
+# Scratch / local artifacts — never commit
+*.log
+server.log
+append_fix.py
+tmpx
+.DS_Store

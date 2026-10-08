@@ -6,11 +6,19 @@ services:
     startCommand: npm start
     healthCheckPath: /health
     envVars:
+      # Primary: OpenRouter free Gemma (":free" model ids are enforced in code)
+      - key: OPENROUTER_API_KEY
+        sync: false
+      # Fallback: Google AI Studio Gemma, used when OpenRouter is rate-limited
       - key: GEMMA_API_KEY
         sync: false
+      # Real-world place discovery (optional but recommended)
       - key: SERPAPI_KEY
+        sync: false
+      # Optional integrations — /health reports their status either way
+      - key: SENTRY_DSN
         sync: false
       - key: MONGODB_URI
         sync: false
-      - key: SENTRY_DSN
-        sync: false
+      - key: NODE_ENV
+        value: production
