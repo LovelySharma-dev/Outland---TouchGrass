@@ -1,72 +1,11 @@
 <p align="center">
-<svg width="880" height="230" viewBox="0 0 880 230" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="OUTLAND — your neighborhood has side quests">
-  <defs>
-    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#c6ff3d" stop-opacity="0.55"/>
-      <stop offset="55%" stop-color="#c6ff3d" stop-opacity="0.12"/>
-      <stop offset="100%" stop-color="#c6ff3d" stop-opacity="0"/>
-      <animate attributeName="opacity" values="0.55;1;0.55" dur="3.2s" repeatCount="indefinite"/>
-    </radialGradient>
-    <linearGradient id="beam" x1="0" y1="0" x2="880" y2="0" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#c6ff3d" stop-opacity="0"/>
-      <stop offset=".5" stop-color="#c6ff3d" stop-opacity=".9"/>
-      <stop offset="1" stop-color="#c6ff3d" stop-opacity="0"/>
-      <animate attributeName="x1" values="-880;880" dur="4.5s" repeatCount="indefinite"/>
-      <animate attributeName="x2" values="0;1760" dur="4.5s" repeatCount="indefinite"/>
-    </linearGradient>
-  </defs>
-  <!-- card -->
-  <rect x="1" y="1" width="878" height="228" rx="24" fill="#0e0e10" stroke="#2a2a30" stroke-width="2"/>
-  <!-- pulsing glow behind the mark -->
-  <circle cx="160" cy="105" r="88" fill="url(#glow)"/>
-  <!-- the Outland mark: a tripping triangle / grass blade, gently bobbing -->
-  <g transform="translate(160 105) scale(0.72) translate(-180 -150)">
-    <path d="M180 96 L228 210 L180 188 L132 210 Z" fill="#c6ff3d">
-      <animateTransform attributeName="transform" type="translate" values="0 0; 0 -8; 0 0" dur="2.6s" repeatCount="indefinite" calcMode="spline" keySplines="0.4 0 0.2 1; 0.4 0 0.2 1"/>
-    </path>
-    <!-- orbiting "quest marker" dot -->
-    <circle cx="180" cy="150" r="64" stroke="#c6ff3d" stroke-opacity="0.25" stroke-dasharray="4 10" fill="none"/>
-    <circle r="5" fill="#f4f1ea">
-      <animateMotion dur="6s" repeatCount="indefinite" path="M 244,150 A 64,64 0 1 1 243.9,149"/>
-    </circle>
-  </g>
-  <!-- wordmark -->
-  <text x="270" y="94" font-family="ui-sans-serif, system-ui, sans-serif" font-size="56" font-weight="800" letter-spacing="9" fill="#f4f1ea">OUT<tspan fill="#c6ff3d">LAND</tspan></text>
-  <!-- tagline: words fade in one by one, then loop -->
-  <g font-family="ui-sans-serif, system-ui, sans-serif" font-size="18" fill="#9a9aa2" letter-spacing="4">
-    <text x="272" y="126">STOP<tspan fill="#f4f1ea"> SCROLLING.</tspan></text>
-    <text x="272" y="126" opacity="0">STOP SCROLLING.<tspan fill="#c6ff3d"> START QUESTING.</tspan>
-      <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.45;0.55;0.9;1" dur="5s" repeatCount="indefinite"/>
-    </text>
-  </g>
-  <!-- animated stat chips -->
-  <g font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" font-weight="600">
-    <g>
-      <rect x="270" y="156" width="160" height="30" rx="15" fill="#17171b" stroke="#3a3a42"/>
-      <text x="286" y="175" fill="#c6ff3d">⚡</text><text x="308" y="175" fill="#d5d2ca">quest in ≤ 14s</text>
-      <animateTransform attributeName="transform" type="translate" values="0 0;0 -4;0 0" dur="3.4s" repeatCount="indefinite"/>
-    </g>
-    <g>
-      <rect x="444" y="156" width="172" height="30" rx="15" fill="#17171b" stroke="#3a3a42"/>
-      <text x="460" y="175" fill="#c6ff3d">📍</text><text x="482" y="175" fill="#d5d2ca">real, vetted places</text>
-      <animateTransform attributeName="transform" type="translate" values="0 0;0 -4;0 0" dur="3.4s" begin="0.5s" repeatCount="indefinite"/>
-    </g>
-    <g>
-      <rect x="630" y="156" width="148" height="30" rx="15" fill="#17171b" stroke="#3a3a42"/>
-      <text x="646" y="175" fill="#c6ff3d">🛡</text><text x="668" y="175" fill="#d5d2ca">safety-gated</text>
-      <animateTransform attributeName="transform" type="translate" values="0 0;0 -4;0 0" dur="3.4s" begin="1s" repeatCount="indefinite"/>
-    </g>
-  </g>
-  <!-- sweeping light beam across the footer -->
-  <rect x="0" y="198" width="220" height="2" fill="url(#beam)"/>
-  <text x="440" y="214" text-anchor="middle" font-family="ui-monospace, monospace" font-size="11" fill="#57575f" letter-spacing="2">FREE-TIER GEMMA · SERPAPI · 96/96 TESTS · NODE ≥ 20 · RENDER-READY</text>
-</svg>
+  <img src="assets/hero.svg" alt="OUTLAND — your neighborhood has side quests" width="880"/>
 </p>
 
 <p align="center">
-  <a href="https://img.shields.io/badge/tests-96%2F96-brightgreen?style=flat-square&logo=jest&logoColor=white"><img alt="96/96 tests" src="https://img.shields.io/badge/tests-96%2F96-brightgreen?style=flat-square&logo=jest&logoColor=white"/></a>
+  <a href="server.test.js"><img alt="98/98 tests" src="https://img.shields.io/badge/tests-98%2F98-brightgreen?style=flat-square&logo=jest&logoColor=white"/></a>
   <a href="server.js"><img alt="build passing" src="https://img.shields.io/badge/build-passing-brightgreen?style=flat-square"/></a>
-  <img alt="node >= 20" src="https://img.shields.io/badge/node-%3E%3D20-brightgreen?style=flat-square&logo=nodedotjs&logoColor=white"/>
+  <img alt="node 20+" src="https://img.shields.io/badge/node-%3E%3D20-brightgreen?style=flat-square&logo=nodedotjs&logoColor=white"/>
   <img alt="free tier only" src="https://img.shields.io/badge/models-free%20tier%20only-4c9f70?style=flat-square"/>
   <img alt="license MIT" src="https://img.shields.io/badge/license-MIT-blue?style=flat-square"/>
   <a href="#-deploy-in-5-minutes"><img alt="Render ready" src="https://img.shields.io/badge/deploy-Render-46e3b7?style=flat-square&logo=render&logoColor=white"/></a>
@@ -324,7 +263,7 @@ The whole app is a single accessible `index.html` — no framework, no build ste
 ## ✅ Testing
 
 <p>
-  <img alt="96 of 96" src="https://img.shields.io/badge/96%2F96%20pass-brightgreen?style=flat-square"/> &nbsp;
+  <img alt="98 of 98" src="https://img.shields.io/badge/98%2F98%20pass-brightgreen?style=flat-square"/> &nbsp;
   <code>npm test</code> · node:test · zero extra test deps
 </p>
 
@@ -356,7 +295,7 @@ npm start                   # → http://localhost:3000
 | Command | What it does |
 |---|---|
 | `npm start` | run the server |
-| `npm test` | full test suite (96 tests) |
+| `npm test` | full test suite (98 tests) |
 | `npm run build` | syntax-check `server.js` (used as the Render build step) |
 | `npm run demo` | 12-request reproducible demo report |
 | `npm run live` | live quest attempts |
