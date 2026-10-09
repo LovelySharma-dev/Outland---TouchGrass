@@ -737,6 +737,45 @@ export function curatedLocation(q, places = [], c) {
   return check.ok ? check.location : null;
 }
 
+// Host scoring for the best nearby discovery to attach to a curated outing.
+// Curated quests are free, outdoor, observation-style outings, so free public
+// green/viewing space scores highest. Anything you pay to enter - or that is
+// built around a crowd or a bar - scores below zero and is never attached,
+// whatever the player's budget: the quest itself is a free walking outing and
+// the place must fit the quest, not just the wallet.
+const HOST_PLACE = /\b(?:park|garden|green(?:s)?|botanic|biodiversity|lake|pond|river|fountain|viewpoint|overlook|promenade|boardwalk|trail|beach|shore|pier|museum|gallery|library|heritage|memorial|monument|plaza|courtyard)\b/i;
+const QUIET_GROUNDS = /\b(?:temple|church|gurudwara|mosque|shrine)\b/i;
+const AVOID_PLACE = /\b(?:escape room|mystery room|nightclub|night club|bar|pub|lounge|casino|karaoke|bowling|spa|salon|restaurant|cafe|café|coffee|mall|cinema|movie|theat(?:re|er)|hotel|resort|zoo|aquarium|amusement|water park)\b/i;
+
+function hostScore(p) {
+  const text = `${p.name} ${p.type || ""}`;
+  let s = 0;
+  if (HOST_PLACE.test(text)) s += 3;
+  if (QUIET_GROUNDS.test(text)) s += 1;
+  if (AVOID_PLACE.test(text)) s -= 6;
+  return s;
+}
+
+// When Gemma never got to select a place (curated fallback), the player still
+// discovered real places - so attach the best-scoring discovery that passes
+// EVERY checkPlace gate (unsafe / paid-on-₹0 / social / energy / time). The
+// place is honestly labelled via:"nearby" - it is a verified discovery that
+// hosts this free outing, not a Gemma selection and not a claim that the
+// curated text named it. No fitting place means location stays null.
+export function nearbyLocation(places = [], c) {
+  if (!Array.isArray(places) || !places.length || !c) return null;
+  const ranked = places
+    .filter((p) => p && p.name)
+    .map((p) => ({ p, s: hostScore(p) }))
+    .filter((x) => x.s > 0)
+    .sort((a, b) => b.s - a.s);
+  for (const { p } of ranked) {
+    const check = checkPlace(p, { name: p.name, reason: "a verified free public spot nearby - your outing can start here" }, c, "nearby");
+    if (check.ok) return check.location;
+  }
+  return null;
+}
+
 const LOCATION_FEEDBACK = {
   "location:unverified-place": 'the location gate rejected it: location.name must be copied EXACTLY from VERIFIED REAL PLACES, or "location" must be null. Never invent a place.',
   "location:paid-on-zero-budget": "the location gate rejected it: that place costs money and this player has INR 0. Choose a verified free place, or set location to null.",
@@ -1385,11 +1424,21 @@ app.post("/api/quest", async (req, res) => {
     failReason = failReason || "gates-rejected";
     trace.push({ stage: "safety", ok: true, source: "curated" });
     trace.push({ stage: "quality", ok: curatedQuality, source: "curated", ...(curatedQuality ? {} : { reason: curatedWhy || "curated pool", note: "curated content is hand-written; the AI taste gate does not apply to it" }) });
-    // A curated quest only ever gets a place it names itself - and the trace
-    // says so, so a curated fallback never claims SerpApi grounded it.
-    const cl = curatedLocation(quest, places, c);
+    // A curated quest prefers a place it names itself; otherwise the best
+    // nearby discovery that passes every gate is attached (via:"nearby").
+    // Either way the trace says exactly how the place earned its spot, so a
+    // curated fallback never claims Gemma/SerpApi selected it.
+    const cl = curatedLocation(quest, places, c) || nearbyLocation(places, c);
     quest.location = cl;
-    trace.push({ stage: "location", ok: true, source: "curated", place: cl ? cl.name : null, note: cl ? "verified discovery named by this curated quest" : "location-independent curated quest" });
+    trace.push({
+      stage: "location", ok: true, source: "curated",
+      place: cl ? cl.name : null,
+      ...(cl && cl.map_url ? { map: "google-maps" } : {}),
+      ...(cl ? { via: cl.via } : {}),
+      note: cl
+        ? (cl.via === "curated" ? "verified discovery named by this curated quest" : "best nearby discovery attached to this curated quest")
+        : "location-independent curated quest",
+    });
     trace.push({ stage: "curated_fallback", ok: true, reason: failReason, note: "gemma did not deliver a quest that passed every gate inside the budget" });
     if (SENTRY_ON) Sentry.captureMessage(`quest fallback: ${JSON.stringify(trace)}`, "warning");
   }

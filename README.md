@@ -113,6 +113,20 @@ Quests are concrete micro-adventures: *observe something new, find the oldest do
 
 ---
 
+## 📸 Screenshots
+
+| | |
+|---|---|
+| ![OUTLAND screenshot 1](assets/screenshots/image1.png) | ![OUTLAND screenshot 2](assets/screenshots/image2.png) |
+| ![OUTLAND screenshot 3](assets/screenshots/image3.png) | ![OUTLAND screenshot 4](assets/screenshots/image4.png) |
+| ![OUTLAND screenshot 5](assets/screenshots/image5.png) | ![OUTLAND screenshot 6](assets/screenshots/image6.png) |
+
+<p align="center">
+  <img alt="OUTLAND screenshot 7" src="assets/screenshots/image7.png" width="720"/>
+</p>
+
+---
+
 ## 🧠 Why AI is central
 
 Gemma is not a decorative chatbot. It is the engine that transforms structured state + discovered real places into a **playable quest**: concrete steps, objectives, gamified rewards, and — when a city is provided — **at most one** real location that actually fits your energy, time, budget and social mode. Same prompt for everyone would produce the same walk around the block; Gemma makes it *yours*.
@@ -272,7 +286,7 @@ Each quest carries:
 
 ## 🧺 Curated fallback pool
 
-**10** hand-written, energy-aware, location-independent quests (energy floors 0 → 81). They pass the same safety and personalization gates as Gemma output and are designed to feel like *real Outland side quests* — not “go for a walk” filler:
+**10** hand-written, energy-aware quests (energy floors 0 → 81). They pass the same safety and personalization gates as Gemma output and are designed to feel like *real Outland side quests* — not “go for a walk” filler. When SerpApi discoveries are available, the best free public one that passes every gate is attached to the card (labelled `via: "nearby"` — never claimed as a Gemma selection); with no discoveries, the quest stays location-independent.
 
 <details>
 <summary><b>Expand the pool</b> (energy floor · rarity · archetype)</summary>

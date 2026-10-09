@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert";
 import vm from "node:vm";
 import { readFileSync } from "node:fs";
-import { validate, safety, quality, fit, maxMinutes, redact, gemma, TIMING, attemptDeadline, repairFields, buildRepairPrompt, generateQuest, routeState, resetRouteHealth, freeOpenRouterModels, freeGoogleModels, curated, gentle, locationGate, curatedLocation } from "./server.js";
+import { validate, safety, quality, fit, maxMinutes, redact, gemma, TIMING, attemptDeadline, repairFields, buildRepairPrompt, generateQuest, routeState, resetRouteHealth, freeOpenRouterModels, freeGoogleModels, curated, gentle, locationGate, curatedLocation, nearbyLocation } from "./server.js";
 
 const c = { state: "surprise", energy: 30, budget: 0, social: "solo", chaos: 3, city: "", excuse: "", minutes: 0 };
 
@@ -609,6 +609,46 @@ test("curated fallback: no misleading SerpApi attribution", () => {
   // Unsafe or unfitting places stay out of curated quests too.
   const unsafeCurated = { ...q, objective: "Explore Abandoned Factory Lane." };
   assert.equal(curatedLocation(unsafeCurated, places, c), null);
+});
+
+test("curated fallback: the best nearby discovery is attached with a map link", () => {
+  // When Gemma never got to pick, a verified free public discovery still
+  // hosts the curated outing - honestly labelled via:"nearby".
+  const near = nearbyLocation(places, c);
+  assert.ok(near, "a verified nearby place is attached when one fits");
+  assert.equal(near.name, "Meghdootam Park", "free public green space beats venues you pay to enter");
+  assert.equal(near.source, "serpapi", "the place DATA is still SerpApi's");
+  assert.equal(near.via, "nearby", "never labelled as a Gemma selection");
+  assert.match(near.map_url, /^https:\/\/www\.google\.com\/maps\/search\/\?api=1&query=/, "real coordinates build a real map link");
+  // No fitting place -> still location-independent, never an invented one.
+  assert.equal(nearbyLocation([], c), null, "no discovery, no location");
+  assert.equal(nearbyLocation(null, c), null, "malformed list is treated as empty");
+  // Paid / nightlife-only discovery lists are never attached, budget or not.
+  const funded = { ...c, budget: 500 };
+  const dead = [{ name: "Mystery Rooms Sector 41", address: "Sector 41, Noida", type: "Escape room", source: "serpapi", lat: 28.5, lng: 77.3 }];
+  assert.equal(nearbyLocation(dead, c), null, "₹0 player: escape room never hosts a free outing");
+  assert.equal(nearbyLocation(dead, funded), null, "even a funded player: the quest itself is a free outing");
+  // The energy gate still applies: a rotting player is not sent on a trail.
+  const rotting = { ...c, energy: 10, state: "rotting" };
+  const trailOnly = [{ name: "Jungle Trail", address: "Lal Kuan", type: "Hiking area", source: "serpapi" }];
+  assert.equal(nearbyLocation(trailOnly, rotting), null, "EFFORT places stay out of gentle outings");
+  // A solo player is not sent to a group venue either.
+  const lounge = [{ name: "Weekend Party Lounge", address: "Ghaziabad", type: "Night club", source: "serpapi" }];
+  assert.equal(nearbyLocation(lounge, c), null, "nightlife never hosts a solo quest");
+});
+
+test("curated fallback: the handler's attach order prefers a named place, then nearby", () => {
+  // This is the exact expression the /api/quest curated path runs.
+  const attach = (q) => curatedLocation(q, places, c) || nearbyLocation(places, c);
+  // A curated quest that names a discovery keeps that discovery (via:curated).
+  const named = { ...curated(c), objective: "Sit quietly in Meghdootam Park and observe.", steps: ["Sit quietly in Meghdootam Park for two minutes."] };
+  assert.equal(attach(named).via, "curated");
+  // The generic curated quest falls through to the best nearby discovery.
+  assert.equal(attach(curated(c)).via, "nearby");
+  assert.equal(attach(curated(c)).name, "Meghdootam Park");
+  // With no discovery list at all, both paths stay honestly empty.
+  assert.equal(curatedLocation(named, [], c), null);
+  assert.equal(nearbyLocation([], c), null);
 });
 
 // --- field repair helpers ---------------------------------------------------
